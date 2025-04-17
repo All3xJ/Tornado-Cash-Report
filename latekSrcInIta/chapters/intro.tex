@@ -1,0 +1,65 @@
+\chapter{Introduzione}
+
+Una delle principali differenze tra la blockchain di Ethereum e quella di Bitcoin riguarda la gestione dei wallet, degli indirizzi di resto e dei modelli di transazione.
+
+\section{Modello UTXO di Bitcoin}
+
+Bitcoin adotta un modello di transazione basato sugli \textbf{UTXO} (Unspent Transaction Output), in cui ogni transazione spende uno o più output non ancora utilizzati (UTXO appunto) come input e genera un nuovo UTXO per ogni output. Quando un utente effettua una transazione, il wallet seleziona una serie di UTXO per coprire l'importo richiesto. Se la somma degli input eccede l'importo della transazione, il saldo residuo viene inviato a un indirizzo di resto (\textit{change}), controllato dal wallet del mittente\cite{nakamoto2008}.
+
+\section{Modello Account-Based di Ethereum}
+
+Nel caso della blockchain di Bitcoin, l'elemento centrale è rappresentato dalla criptomoneta Bitcoin stessa, attorno alla quale si sviluppano tutte le operazioni di scambio. Al contrario, nella blockchain di Ethereum, la criptomoneta Ether svolge principalmente il ruolo di "carburante" necessario per il funzionamento della rete, mentre gli strumenti di maggiore rilevanza sono gli \textbf{smart contract} e i \textbf{token}, sia fungibili che non fungibili. Inoltre, attraverso specifici \textit{smart contract}, è possibile vincolare temporaneamente una determinata quantità di token mediante un meccanismo noto come \textbf{staking}, comunemente impiegato all'interno di contratti di finanza decentralizzata (DeFi). 
+
+Ethereum utilizza un modello \textbf{account-based} (invece di UTXO) perché è più adatto alla gestione di \textit{smart contract} complessi. Questo modello consente aggiornamenti diretti dello stato globale, inclusi saldi degli account, variabili dei contratti e altre informazioni persistenti. Inoltre, semplifica la programmabilità, facilitando l'interazione tra contratti e account ed evitando la frammentazione delle transazioni tipica del modello UTXO, che non gestisce uno stato persistente in modo nativo. Ogni indirizzo Ethereum possiede un saldo persistente che viene direttamente modificato dalle transazioni. In questo sistema non esistono UTXO; le transazioni si limitano a detrarre l’importo dal saldo del mittente e ad accreditarlo al destinatario\cite{ethereum}.
+
+\section{Privacy e Anonimato: Introduzione a Tornado Cash}
+
+Avere un account personale fisso implica che tutte le transazioni siano completamente visibili da chiunque, eliminando quasi completamente la privacy, che rimane solamente nel collegare l'indirizzo del wallet ad una persona fisica.
+
+Tornado Cash nasce con l'idea di migliorare la privacy, garantendo anonimato sulle transazioni. Può essere particolarmente utile per attivisti, come quelli che operano in paesi con regimi repressivi, giornalisti che trattano temi sensibili, o anche aziende che vogliono proteggere le loro transazioni finanziarie. Inoltre, può supportare i donatori che contribuiscono a cause controverse o politicamente sensibili, senza rischiare di essere identificati o perseguiti.
+
+È un "\textit{non-custodial protocol}", ovvero gli utenti mantengono il pieno controllo dei propri fondi e chiavi private, senza doverli affidare a una terza parte. Grazie agli \textit{smart contract}, questo protocollo è visibile a tutti e non è modificabile, nemmeno dallo sviluppatore. L'idea principale è la seguente:
+
+\begin{enumerate}
+    \item L'utente manda un certo ammontare di criptomoneta che intende usare per effettuare il pagamento al contratto di Tornado Cash.
+    \item L'utente genera una prova di aver fatto un deposito.
+    \item Utilizzando questa prova, un qualsiasi altro utente può ritirare i fondi su un wallet diverso, senza che vi sia un collegamento diretto con il deposito iniziale.
+\end{enumerate}
+
+Chiunque voglia monitorare le transazioni del nostro indirizzo potrà vedere che abbiamo inviato criptovaluta al contratto di Tornado Cash, ma non sarà in grado di risalire al destinatario del prelievo. Allo stesso modo, se riceviamo fondi da Tornado Cash, l'osservatore potrà vedere l'accredito ma non potrà identificare l'indirizzo del mittente.
+
+\section{Token e Chain Supportate}
+
+L'originale implementazione, oltre ad Ether (ETH), prevede l'utilizzo dei seguenti token (sempre sulla chain di Ethereum):
+
+\begin{itemize}
+    \item DAI
+    \item cDAI
+    \item USDC
+    \item USDT
+    \item WBTC
+\end{itemize}
+
+Con l'ultima versione aggiornata al 2021, Tornado Cash è stato reso disponibile, oltre che per Ethereum, anche per le seguenti chain:
+
+\begin{itemize}
+    \item Binance Smart Chain
+    \item Polygon Network
+    \item Gnosis Chain (former xDAI Chain)
+    \item Avalanche Mainnet
+    \item Optimism
+    \item Arbitrum One
+\end{itemize}
+
+\section{Versioni di Tornado Cash}
+
+Esistono due versioni di Tornado Cash:
+
+\begin{itemize}
+    \item Tornado Cash Classic
+    \item Tornado Cash Nova
+\end{itemize}
+
+In Tornado Cash Classic, quando un utente deposita la criptomoneta in una pool, viene generato un segreto. Questo segreto funziona come una chiave privata: un utente che ne è in possesso può in qualsiasi momento ritirare i fondi su un altro indirizzo.
+
+"In Tornado Cash Nova, i fondi sono direttamente legati all'indirizzo usato per il deposito, senza ricorrere a un segreto. L'utente può ritirarli connettendosi alla pool tramite lo stesso indirizzo. La robustezza del protocollo si affida al numero di utenti e l'entità della pool (più transazioni avvengono, e più è difficile effettuare un analisi che ricolleghi le transazioni)

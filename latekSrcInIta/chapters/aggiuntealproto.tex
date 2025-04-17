@@ -1,0 +1,194 @@
+\chapter{Aggiunte al Protocollo di Base}
+
+\section{Relayer}
+
+Quando un utente effettua un prelievo su Tornado Cash, deve interagire direttamente con lo smart contract del protocollo, il che comporta costi di transazione in termini di \textbf{gas fees}. Ciò rappresenta spesso un problema, poiché l’obiettivo principale di Tornado Cash è garantire l’anonimato delle transazioni. Di conseguenza, gli account destinatari dei fondi sono frequentemente privi di Ether (ETH), in quanto l’acquisto di ETH tramite un exchange e il successivo trasferimento su un nuovo indirizzo potrebbe comportare l’identificazione dell’utente.
+
+Per risolvere questo problema, entrano in gioco i \textbf{relayer}, soggetti terzi che agiscono come intermediari e si offrono di coprire le gas fees in cambio di una piccola tariffa (che varia, ad es da 0.45\% a 2.5\% del prelievo, attualmente).
+
+Quando un utente desidera effettuare un \textbf{prelievo} utilizzando un relayer, genera una \textbf{prova crittografica (proof)} che, oltre a includere i dati del deposito, incorpora anche l’indirizzo del relayer stesso. Invece di inviare direttamente la prova allo smart contract, l’utente la trasmette al relayer \textit{off-chain}, il quale si occupa di firmare la transazione e coprirne i costi di esecuzione.
+
+Grazie al fatto che la prova del \textbf{prelievo} viene generata specificando \textbf{sia l’indirizzo del relayer sia quello del wallet destinatario}, il relayer non ha alcuna possibilità di alterare il comportamento della transazione a proprio vantaggio. L’unica azione che può intraprendere è non eseguire la transazione. In tal caso, l’utente può semplicemente selezionare un altro relayer e generare una nuova prova utilizzando i dati del nuovo intermediario.
+
+Un Relayer può diventarlo depositando minimo 5k TORN in stake. Piu TORN mette in stake, più alto sarà il suo "score", più alta è la sua tariffa, più basso sarà lo score.
+
+\section{Anonymity Mining}
+
+L’efficacia del protocollo Tornado Cash dipende fortemente dalla dimensione del suo \textbf{anonymity set}, ovvero il numero di utenti che partecipano al sistema. Se il protocollo fosse utilizzato da un solo individuo, il meccanismo di anonimizzazione risulterebbe completamente inutile. In tal caso, sarebbe sufficiente osservare le transazioni registrate sulla blockchain per individuare un indirizzo che ha effettuato un deposito e uno che ha eseguito un prelievo, rendendo banale l’associazione tra le due operazioni.
+
+Anche in presenza di un numero ridotto di utenti, sarebbe possibile condurre un’analisi probabilistica per stabilire correlazioni tra depositi e prelievi. Se l’anonimity set è limitato, il numero di potenziali collegamenti tra depositi e prelievi si riduce, permettendo a un osservatore di inferire, con un certo grado di certezza, quali transazioni siano collegate tra loro.
+
+Un ulteriore fattore critico è la liquidità all’interno della pool. Anche con un numero elevato di utenti, se i depositanti prelevassero gli asset subito dopo il deposito, il saldo oscillerebbe tra zero e l’importo più recente, azzerandosi rapidamente dopo ogni prelievo. Questo renderebbe più facile collegare le transazioni, poiché l’osservazione delle variazioni del saldo permetterebbe di dedurre quando un deposito viene riscattato.
+
+Per mitigare questi problemi, è stato introdotto il meccanismo di \textbf{Anonymity Mining}, il cui funzionamento è piuttosto semplice: un utente che deposita asset nella pool riceve una ricompensa in token TORN proporzionale al tempo di permanenza dei fondi nel protocollo. Questa ricompensa, calcolata tramite Punti di Anonimato (AP) guadagnati per blocco in base alla dimensione del deposito (es. 4 AP per 0,1 ETH o 400 AP per 100 ETH), serve per aumentare l’anonimity set, mascherare più efficacemente i pattern temporali e rendere significativamente più difficile correlare depositi e prelievi, incentivando così una partecipazione più ampia e duratura.
+
+Un aspetto fondamentale del protocollo è che non è pubblicamente visibile se un determinato deposito è stato prelevato o meno. Questo garantisce che non sia possibile stabilire un collegamento diretto tra un deposito e un prelievo, rafforzando il livello di anonimato dell’intero sistema.
+
+Il programma di Anonymity Mining è terminato nel 2021, visto che Tornado Cash aveva già abbastanza volume.
+
+\section{Tornado Cash Nova}
+
+Supponiamo che un utente depositi 0.423489389 ETH, la probabilità che un altro utente depositi la stessa cifra, scegliendo in modo casuale, è praticamente nulla. E quindi da un prelievo si riuscirebbe a risalire al deposito semplicemente dal valore. Per questo motivo è stato scelto di utilizzare degli importi standard per depositi e prelievi, così da eliminare questo tipo di vulnerabilità. Per quanto riguarda ETH i valori standard sono 0.1, 1, 10, 100.
+
+Questa soluzione però introduce della rigidità, in quanto ora per depositare gli ipotetici 0.423489389 ETH avremmo bisogno di fare 4 transazioni di deposito e 4 di prelievo, andando a pagare il gas 8 volte al posto di 2 e lasciando 0.023489389 ETH sul wallet di partenza.
+
+\textbf{Tornado Cash Nova} nasce con l'idea di risolvere questo problema.
+
+Per superare questa limitazione, Tornado Cash Nova introduce il concetto di \textbf{shielded account} e la possibilità di depositare e prelevare importi completamente arbitrari. A differenza di Tornado Cash Classic, dove gli importi sono fissi, Nova permette agli utenti di depositare \textbf{qualsiasi cifra desiderata} e di effettuare prelievi multipli fino a esaurire il saldo.
+
+Questo sistema offre maggiore flessibilità, ma richiede un'attenzione particolare per mantenere l'anonimato. Se un utente deposita e preleva la stessa cifra esatta, potrebbe essere più facilmente rintracciabile. Tuttavia, dividere il prelievo in più transazioni con importi differenti può rendere più complesso il collegamento tra il deposito e i prelievi, soprattutto in una pool molto utilizzata.
+
+Dal punto di vista tecnico, Tornado Cash Nova utilizza un sistema di \textbf{commitment aggiornabile} basato su Merkle Trees e zk-SNARKs. Ogni transazione modifica lo stato del saldo dell'utente senza rivelare esplicitamente gli importi coinvolti. Questo avviene attraverso la generazione di un nuovo \textbf{commitment} che rappresenta il saldo residuo dopo un prelievo parziale. Il nuovo commitment viene aggiunto al Merkle tree, mentre il vecchio viene escluso dalle future verifiche tramite il \textbf{nullifier}, impedendo un eventuale double spending.
+
+Tornado Cash Nova non è un aggiornamento di Tornado Cash Classic, ma una versione alternativa con caratteristiche diverse. Mentre Nova consente maggiore flessibilità negli importi, Classic garantisce un'anonimizzazione più semplice grazie agli importi standardizzati. La scelta tra le due dipende dalle esigenze specifiche dell'utente in termini di privacy e usabilità.
+
+
+\section{Tornado Proxy}
+
+Quando si accede ai contratti di deposito di Tornado.cash tramite l'interfaccia ufficiale, tutte le transazioni vengono eseguite attraverso un contratto proxy denominato Tornado Proxy. Poiché i contratti di deposito sono immutabili e molte funzionalità di Tornado.cash sono state aggiunte solo dopo il loro deployment iniziale, il Tornado Proxy consente di integrare funzionalità aggiuntive senza dover sostituire le istanze originali dei contratti di deposito, già collaudate e affidabili.
+
+Le due funzionalità più rilevanti del Tornado Proxy sono:
+
+\begin{itemize}
+    \item Backup on-chain dei depositi degli utenti, attraverso account di note crittografate, garantendo così una maggiore sicurezza e recuperabilità delle transazioni.
+    \item Gestione della coda di depositi e prelievi, facilitando il loro successivo processamento all'interno del contratto Tornado Trees per una verifica efficiente tramite prove a conoscenza zero.
+\end{itemize}
+
+Quando si effettua un deposito tramite il Tornado Proxy, e successivamente un prelievo attraverso lo stesso, il proxy chiama i metodi corrispondenti nel contratto Tornado Trees.
+
+La registrazione di un deposito prevede i seguenti passaggi:  
+
+\begin{enumerate}
+    \item Si acquisiscono l’indirizzo del contratto di deposito, il commitment e il numero del blocco corrente.
+    \item Questi valori vengono codificati tramite ABI e sottoposti a un hashing keccak256.
+    \item L'hash risultante viene inserito in una coda interna al contratto, per essere successivamente raggruppato in un Merkle Tree dei depositi (da non confondere con il contratto di deposito stesso).
+\end{enumerate}
+
+La registrazione di un prelievo segue lo stesso procedimento, con la differenza che al posto dell’commitment viene utilizzato l’hash del nullifier associato al prelievo. L'hash keccak256 risultante viene quindi inserito nella coda dei prelievi, per essere successivamente raggruppato nel Merkle Tree dei prelievi.  
+
+I metodi registerDeposit e registerWithdrawal del contratto Tornado Trees emettono rispettivamente gli eventi DepositData e WithdrawalData, contenenti gli stessi valori utilizzati per calcolare l’hash, oltre a un campo aggiuntivo che indica l’ordine di ingresso nella coda.
+
+\subsection{Aggiornamento Chunked Merkle Tree}
+
+I Merkle Tree standard sono costosi da memorizzare e aggiornare, soprattutto quando si vuole gestire un elevato numero di foglie. Depositare una nota nei contratti di deposito di Tornado.cash può costare oltre 1,2 milioni di gas, traducendosi in centinaia di dollari in ETH se l'operazione avviene sulla mainnet di Ethereum. Gran parte di questo costo deriva dall'inserimento di un singolo impegno nel Merkle Tree del contratto di deposito.  
+
+Invece di spendere tutto quel gas, si potrebbe semplicemente proporre una nuova radice di Merkle, calcolata off-chain, e dimostrarne la validità tramite una Zero Knowledge Proof.  
+
+Tuttavia, verificare le Zero Knowledge Proofs è un'operazione onerosa. Per ridurre i costi, anziché aggiornare il Merkle Tree a ogni modifica, è possibile raggruppare più inserimenti in commitment aggregati, verificabili in un'unica operazione.
+
+\subsubsection{Struttura Chunked Tree}
+
+Gli alberi di deposito e prelievo sono entrambi Merkle Tree di dimensione fissa, profondi 20 livelli, con una caratteristica particolare: il chunk size determina il livello a cui gli aggiornamenti vengono elaborati in modo aggregato, anziché come inserimenti singoli.  
+
+Nel caso di Tornado Trees, il chunk size è 256 ($2^8$), quindi ogni chunk copre 8 livelli dell'albero. L'albero completo rimane limitato a $2^{20}$ foglie, ma queste sono suddivise in chunk da 256 foglie ciascuno, per un totale di 2¹² chunk.  
+
+La funzione di hash utilizzata per generare le etichette dei nodi è Poseidon, che condivide alcune somiglianze con l'hash di Pedersen impiegato nel contratto di deposito principale, in quanto si basa su un algoritmo di hashing su curve ellittiche. La principale differenza è che Poseidon opera sulla curva BN128, mentre Pedersen utilizza Baby Jubjub. Inoltre, nelle prove a conoscenza zero, Pedersen richiede circa 1,7 vincoli per bit, mentre Poseidon ne utilizza tra 0,2 e 0,45 per bit, rendendolo significativamente più efficiente.
+
+\subsubsection{Eventi}
+
+Per calcolare un aggiornamento dell'albero, è necessario conoscere la sua struttura esistente. Per ottenerla, si possono interrogare i log del contratto e recuperare gli eventi DepositData o WithdrawalData emessi in precedenza, a seconda dell'albero che si sta aggiornando.  
+Utilizzando l'indice indicato da lastProcessedDepositLeaf o lastProcessedWithdrawalLeaf, è possibile suddividere gli eventi in due insiemi di foglie: "committed" e "pending". Come suggeriscono i nomi, le foglie del primo insieme sono già state confermate all'interno del Merkle Tree, mentre quelle del secondo insieme devono ancora essere inserite.
+
+\subsubsection{Tree Update}
+
+Utilizzando gli eventi già confermati, è possibile ricostruire lo stato attuale del Merkle Tree calcolando l'hash Poseidon per ciascuna delle foglie esistenti. Questo viene fatto prendendo come input l'indirizzo dell'istanza Tornado, l'hash dell'impegno o del nullifier e il numero di blocco.  
+
+Lo stato iniziale del Merkle Tree prevede che ogni nodo foglia sia etichettato con un "valore zero" pari a keccak256("tornado") \% BN254\_FIELD\_SIZE, analogamente al funzionamento dei nodi zero nel circuito di deposito principale, ma utilizzando la curva ellittica BN254. Questo approccio garantisce che tutti i percorsi dell'albero siano invalidi finché non viene inserito un impegno valido in una foglia, e fornisce un'etichetta costante e prevedibile per ciascun nodo i cui figli sono zero.  
+
+Le foglie dell'albero vengono quindi popolate da sinistra a destra con gli hash delle foglie corrispondenti agli eventi confermati. Successivamente, i nodi non foglia vengono aggiornati fino alla radice. Se il procedimento è stato eseguito correttamente, la radice risultante dovrebbe coincidere con quella attualmente memorizzata come depositRoot o withdrawalRoot nel contratto Tornado Trees.  
+A questo punto, avendo ottenuto la "vecchia radice", è possibile selezionare un chunk di eventi in sospeso (256 elementi), calcolarne gli hash Poseidon e inserirli nell'albero. Dopo aver aggiornato i nodi non foglia fino alla radice, si otterrà la "nuova radice".  
+
+Infine, è necessario raccogliere un elenco di elementi di percorso a partire dalle foglie del sottoalbero, insieme a un array di valori 0/1 che indicano se ciascun elemento di percorso si trovi a sinistra o a destra rispetto al proprio nodo padre.
+
+\subsubsection{Hash degli argomenti}
+
+Infiner per poter calcolare una prova è necessario l'hash della lista di argomenti che verra passata nel circuito per ottenere la proof.
+
+Per costruire il messaggio, è necessario concatenare i seguenti campi:
+
+\begin{enumerate}
+    \item L'etichetta della vecchia radice
+    \item L'etichetta della nuova radice
+    \item Gli indici del percorso come intero, zero-padded a sinistra
+    \item Per ogni evento in attesa di venire inserito:
+    \begin{itemize}
+        \item L'hash dell'commitment/nullifier
+        \item L'indirizzo dell'istanza Tornado (relativo alla pool) 
+        \item Il numero del blocco
+    \end{itemize}
+\end{enumerate}
+
+Una volta creato il messaggio, si calcola l'hash SHA-256 di questo e si applica il modulo dell'hash rispetto al modulo del gruppo BN128, che si trova nella costante SNARK\_FIELD del contratto Tornado Trees.
+
+\subsubsection{Input per una witness di Aggiornamento dell'Albero}
+
+Il circuito Batch Tree Update prende in input l'hash SHA-256 appena calcolato ed i seguenti parametri privati:
+
+\begin{enumerate}
+    \item La vecchia radice
+    \item La nuova radice
+    \item Gli indici del percorso come intero, zero-padded a sinistra
+    \item Gli elementi del percorso
+    \item Per ogni evento in attesa di venire inserito:
+    \begin{itemize}
+        \item L'hash dell'commitment/nullifier
+        \item L'indirizzo dell'istanza Tornado (relativo alla pool) 
+        \item Il numero del blocco
+    \end{itemize}
+\end{enumerate}
+
+\subsubsection{Prover Claim}
+
+Per dimostrare che l'aggiornamento dell'albero è stato eseguito correttamente, non è necessario fornire una dimostrazione che copra l'intera struttura. È sufficiente dimostrare che un sottoalbero di dimensione pari a un blocco di 8 livelli, contenente un elenco specifico di foglie, è stato inserito in sostituzione della "foglia zero"più a sinistra di un albero di 12 livelli.
+
+\subsubsection{Prova dell'Hash degli Argomenti}
+
+Invece di specificare tutti gli input pubblicamente, possiamo prendere l'Args Hash calcolato in precedenza e confrontarlo con il risultato del calcolo dello stesso hash all'interno del circuito ZK, utilizzando gli input privati. Questo rende l'esecuzione della verifica della prova molto più efficiente.
+
+\subsubsection{Costruzione del Sottoalbero}
+
+Prendendo i tre campi di ogni evento in sospeso nell'ordine (istanza, impegno/nullifier, numero di blocco), si calcola l'hash Poseidon di ciascuna foglia. Successivamente, si costruisce il Merkle Tree solo per il sottoalbero che si sta aggiornando. Poiché il sottoalbero è completo, non è necessario preoccuparsi di foglie zero.
+
+\subsubsection{Verifica dell'Inserimento del Sottoalbero}
+
+Infine, si verifica che inserire la radice del sottoalbero nella posizione proposta comporti la trasformazione della vecchia radice nella nuova radice. Questo processo funziona sostanzialmente allo stesso modo del Merkle Tree Check nel circuito di deposito principale, con la differenza che qui si utilizza Poseidon invece di MiMC.
+
+Il Merkle Tree Updater verifica per prima cosa che il percorso specificato contenga una foglia zero calcolando quale sarebbe la radice dato gli elementi del percorso, gli indici del percorso e una foglia zero. Confronta questo risultato con la vecchia radice specificata, e quindi ripete il processo con la foglia del sottoalbero proposta, confrontando la radice risultante con la nuova radice.
+
+\subsection{Completamento Tree Update}
+
+Dopo aver generato witness e prova, si chiama il metodo corrispondente updateDepositTree o updateWithdrawalTree nel contratto Tornado Trees.
+
+Si passa al metodo di aggiornamento:
+
+\begin{itemize}
+    \item la prova
+    \item l'hash degli argomenti
+    \item la vecchia radice
+    \item la nuova radice
+    \item gli indici del percorso
+    \item un elenco di eventi che da inserire in batch
+\end{itemize}
+
+Il metodo di aggiornamento verifica quindi che:
+
+\begin{enumerate}
+    \item La vecchia radice specificata sia effettivamente la radice attuale dell'albero corrispondente.
+    \item Il percorso Merkle specificato punti alla prima foglia zero disponibile nel sottoalbero.
+    \item L'hash degli argomenti specificato corrisponda agli input forniti e agli eventi proposti.
+    \item La prova sia valida secondo il verificatore del circuito, utilizzando l'hash degli argomenti come input pubblico.
+\end{enumerate}
+
+Se queste condizioni sono soddisfatte, ogni evento inserito viene eliminato dalla coda. I campi corrispondenti nel contratto, che indicano le radici attuali e precedenti, vengono aggiornati, così come un puntatore all'ultima foglia dell'evento.
+
+Esiste un ramo speciale di logica in questo metodo che gestisce anche la migrazione degli eventi dal contratto Tornado Trees V1. Dopo la migrazione iniziale, questi percorsi non vengono mai più visitati e possono essere ignorati in sicurezza.
+
+\subsection{Tornado Router}
+
+Il contrato TornadoProxy \href{https://etherscan.io/address/0x722122df12d4e14e13ac3b6895a86e84145b6967}{0x722122df12d4e14e13ac3b6895a86e84145b6967}
+
+è stato poi sostituito dal contratto TornadoRouter \href{https://etherscan.io/address/0xd90e2f925da726b50c4ed8d0fb90ad053324f31b}{0xd90e2f925da726b50c4ed8d0fb90ad053324f31b}
+
+sostituendo quindi il punto di ingresso per accedere al protocollo.
+
+Questo aggiornamento ha reso possibile l'introduzione di Tornado Nova e ha comportato ulteriori miglioramenti minori a livello generale.

@@ -1,0 +1,423 @@
+\chapter{Funzionamento Smart Contract}
+
+
+In questa sezione analizziamo il funzionamento tecnico di Tornado Cash, esaminando i meccanismi crittografici e le strutture dati che garantiscono la privacy delle transazioni. Approfondiremo le seguenti componenti fondamentali:
+
+\begin{itemize}
+    \item \textbf{Deposit}: il meccanismo con cui gli utenti bloccano i fondi nel contratto.
+    \item \textbf{Merkle Tree}: la struttura utilizzata per organizzare i depositi e verificare la validità delle prove.
+    \item \textbf{Generazione della prova}: il processo crittografico che permette di dimostrare il possesso di un impegno senza rivelarne il valore.
+    \item \textbf{Withdrawal}: la fase di prelievo, in cui un utente può riscattare i fondi in modo anonimo su un indirizzo diverso.
+\end{itemize}
+
+Ogni smart contract su Ethereum è identificato da un indirizzo univoco, noto come \textbf{Contract Address (CA)}. Esistono molteplici contratti che forniscono diverse funzionalitá. Il contratto con cui si deve interagire per depositare e ritirare criptomoneta si chiama TornadoRouter. Questo contratto fa da punto di ingresso unico: quando si interagisce con esso, si passa come input il contratto relativo alla pool criptomoneta che si vuole depositare o prelevare.
+Il vantaggio di questa scelta é che i contratti delle pool possono rimanere fissi, e se c'é bisogno di applicare un cambiamento al protocollo, si puó deployare un altro TornadoRouter.
+Inoltre c'é da notare che nella versione Classic di Tornado Cash, le pool rappresentano la criptomoneta ed un taglio prefissato (per ETH esistono le pool 0.1, 1, 10 e 100 ETH). Questa scelta é stata fatta per rendere piú difficile qualsiasi tipo di analisi in cui si vuole ricollegare lo stesso ammontare di criptomoneta di un deposito a quella di un ritiro.
+L'indirizzo di TornadoRouter è il seguente:
+
+\vspace{0.5em}
+\noindent 
+\href{https://etherscan.io/address/0xd90e2f925DA726b50C4Ed8D0Fb90Ad053324F31b}{0xd90e2f925DA726b50C4Ed8D0Fb90Ad053324F31b}
+
+\vspace{0.5em}
+Il contratto è stato distribuito sulla blockchain attraverso una specifica transazione, identificata da un \textbf{Transaction Hash}. Questo hash rappresenta l'operazione di \textbf{creazione dello smart contract} sulla rete Ethereum. La transazione corrispondente è:
+
+\vspace{0.5em}
+\noindent
+\href{https://etherscan.io/tx/0x51baa3dbb7e8756d52ba1b863f41e7af38373d0bb9943b9585d7f0db2d419e6e}{0x51baa3dbb7e8756d52ba1b863f41e7af38373d0bb9943b9585d7f0db2d419e6e}
+
+\vspace{1em}
+Analizziamo il codice della prima pool creata, infatti si chiama TornadoCash\_eth e non specifica il taglio di ETH, il quale è 10.
+Per analizzare direttamente il codice sorgente del contratto, è possibile consultarlo su Etherscan al seguente link:  
+
+\noindent
+\url{https://etherscan.io/address/0x910cbd523d972eb0a6f4cae4618ad62622b39dbf#code} \cite{etherscan}
+
+\section{Deposit}
+
+\begin{lstlisting}
+    /**
+    @dev Deposit funds into the contract. The caller must send (for ETH) or approve (for ERC20) value equal to or `denomination` of this instance.
+    @param _commitment the note commitment, which is PedersenHash(nullifier + secret)
+  */
+  function deposit(bytes32 _commitment) external payable nonReentrant {
+    require(!commitments[_commitment], "The commitment has been submitted");
+
+    uint32 insertedIndex = _insert(_commitment);
+    commitments[_commitment] = true;
+    _processDeposit();
+
+    emit Deposit(_commitment, insertedIndex, block.timestamp);
+  }
+\end{lstlisting}
+
+Un utente genera due numeri primi con lunghezza 31 bits. Il primo numero lo chiamiamo \textbf{nullifier} mentre il secondo \textbf{secret} (in quanto rappresenterà il segreto per riscattare la somma). Nullifier e secret vengono concatenati e al loro risultato viene applicata la funzione di \textbf{hash di Pedersen}. Questo hash rappresenta il nostro \textbf{committment} (il parametro \verb|_committment| della funzione \verb|deposit|).
+
+Questo commitment da noi generato viene passato come paramentro della funzione \verb|_insert|, la quale andrà ad inserirlo nel \textbf{MerkleTree} e ci restituirà l'\textbf{indice} in cui il commitment è stato inserito.
+
+\verb|commitments [ _commitment ] = true ;| va ad aggiungere il commtiment nel dizionario dei commitment, impostandone il valore a true. Questo passaggio viene fatto per evitare di inserire lo stesso commitment due volte nell'albero. Il controllo avviene appena sopra: \verb|require(!commitments[_commitment])|
+
+\verb|_processDeposit();| serve per controllare che i fondi sono stati mandati alla pool giusta.
+
+Infine, tramite la chiamata 
+
+\verb|emit Deposit(_commitment, insertedIndex, block.timestamp);|, viene generato un evento di tipo Deposit, il quale viene registrato nel log delle transazioni. Poiché gli eventi non sono direttamente accessibili dal contratto una volta emessi, questa registrazione consente di mantenere una traccia permanente dell'operazione sulla blockchain. Tramite questo evento viene ottenuto come l'indice della foglia del Merkle Tree in cui è stato inserito il commitment.
+
+\section{Merkle Tree}
+
+La costruzione del Merkle Tree in Tornado Cash viene effettuata una sola volta al momento della distribuzione del contratto sulla blockchain. Questo avviene nel costruttore \texttt{constructor(uint32 \_treeLevels)} della classe \texttt{MerkleTreeWithHistory}, dove viene inizializzato l'albero con un livello di profondità predefinito (nel caso di Tornado Cash, 20 livelli). Questo consente di poter utilizzare la pool per $2^{20}$ depositi, poi ne dovrà venire creata una nuova.
+
+Dopo questa fase, l'albero è pronto per ricevere nuovi depositi, che saranno inseriti in tempo reale tramite la funzione \texttt{\_insert()}, aggiornata ogni volta che un nuovo \textit{commitment} viene registrato.
+
+\subsection{Costruzione}
+
+\begin{lstlisting}
+contract MerkleTreeWithHistory {
+  uint256 public constant FIELD_SIZE = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
+  uint256 public constant ZERO_VALUE = 21663839004416932945382355908790599225266501822907911457504978515578255421292; // = keccak256("tornado") % FIELD_SIZE
+
+  uint32 public levels;
+
+  // the following variables are made public for easier testing and debugging and
+  // are not supposed to be accessed in regular code
+  bytes32[] public filledSubtrees;
+  bytes32[] public zeros;
+  uint32 public currentRootIndex = 0;
+  uint32 public nextIndex = 0;
+  uint32 public constant ROOT_HISTORY_SIZE = 100;
+  bytes32[ROOT_HISTORY_SIZE] public roots;
+
+  constructor(uint32 _treeLevels) public {
+    require(_treeLevels > 0, "_treeLevels should be greater than zero");
+    require(_treeLevels < 32, "_treeLevels should be less than 32");
+    levels = _treeLevels;
+
+    bytes32 currentZero = bytes32(ZERO_VALUE);
+    zeros.push(currentZero);
+    filledSubtrees.push(currentZero);
+
+    for (uint32 i = 1; i < levels; i++) {
+      currentZero = hashLeftRight(currentZero, currentZero);
+      zeros.push(currentZero);
+      filledSubtrees.push(currentZero);
+    }
+
+    roots[0] = hashLeftRight(currentZero, currentZero);
+  }
+
+  // Altre funzioni seguono nel codice originale
+\end{lstlisting}
+
+Il Merkle Tree utilizzato da Tornado Cash prende come input un livello di profonditá, il quale é compreso tra 0 e 32 estremi esclusi.
+
+Per poter ottenere questa informazione abbiamo due opzioni:
+
+\begin{itemize}
+    \item Interagendo col contratto e richiedendo il valore del campo \verb|uint32 public levels|.
+    \item Andare nella transazione di creazione del contratto e guardare gli input forniti.
+\end{itemize}
+
+Utilizzando questi due metodi si scopre che l'altezza che è stata decisa di attribuire al Merkle Tree è di 20.
+
+Il valore \verb|ZERO_VALUE| è calcolato nel seguente modo: \verb|keccak256("tornado") % FIELD_SIZE|. Ciò puó essere facilmente verificato con il seguente script python:
+
+\begin{lstlisting}
+import sha3     # install safe-pysha3
+
+FIELD_SIZE = 21888242871839275222246405745257275088548364400416034343698204186575808495617
+
+keccak = sha3.keccak_256()
+keccak.update(b"tornado")
+
+print(int(keccak.hexdigest(), 16) % FIELD_SIZE)
+\end{lstlisting}
+
+Il codice
+\begin{lstlisting}
+bytes32 currentZero = bytes32(ZERO_VALUE);
+zeros.push(currentZero);
+filledSubtrees.push(currentZero);
+\end{lstlisting}
+crea un valore iniziale e lo usa per riempire l'albero andandolo ad aggiungere agli array \verb|zeros| e \verb|filledSubtrees|. Questi array vengono usati per rappresentare i \textbf{nodi vuoti} e i \textbf{sottoalberi riempiti}, rispettivamente.
+
+Il codice procede iterativamente alla costruzione dei MerkleTree calcolando l'hash delle foglie (che al momento hanno valore \verb|currentZero|) per ottenere l'hash genitore delle due foglie, per poi calcolare l'hash del rootMerkleTree.
+
+Gli hash vengono calcolati dall'algoritmo MiMC sfruttando l'implementazione della libreria \verb|Hasher.MiMCSponge|:
+
+\begin{lstlisting}
+      /**
+    @dev Hash 2 tree leaves, returns MiMC(_left, _right)
+  */
+  function hashLeftRight(bytes32 _left, bytes32 _right) public pure returns (bytes32) {
+    require(uint256(_left) < FIELD_SIZE, "_left should be inside the field");
+    require(uint256(_right) < FIELD_SIZE, "_right should be inside the field");
+    uint256 R = uint256(_left);
+    uint256 C = 0;
+    (R, C) = Hasher.MiMCSponge(R, C);
+    R = addmod(R, uint256(_right), FIELD_SIZE);
+    (R, C) = Hasher.MiMCSponge(R, C);
+    return bytes32(R);
+  }
+\end{lstlisting}
+
+\subsection{Inserimento}
+
+Precedentemente abbiamo visto che quando effettuiamo un deposito e passiamo il commitment alla funzione \verb|deposit|, lo smart contract chiama il metodo \verb|_insert|, per andare ad inserirlo nel Merkle Tree:
+
+\begin{lstlisting}
+    function _insert(bytes32 _leaf) internal returns(uint32 index) {
+    uint32 currentIndex = nextIndex;
+    require(currentIndex != uint32(2)**levels, "Merkle tree is full. No more leafs can be added");
+    nextIndex += 1;
+    bytes32 currentLevelHash = _leaf;
+    bytes32 left;
+    bytes32 right;
+
+    for (uint32 i = 0; i < levels; i++) {
+      if (currentIndex % 2 == 0) {
+        left = currentLevelHash;
+        right = zeros[i];
+
+        filledSubtrees[i] = currentLevelHash;
+      } else {
+        left = filledSubtrees[i];
+        right = currentLevelHash;
+      }
+
+      currentLevelHash = hashLeftRight(left, right);
+
+      currentIndex /= 2;
+    }
+
+    currentRootIndex = (currentRootIndex + 1) % ROOT_HISTORY_SIZE;
+    roots[currentRootIndex] = currentLevelHash;
+    return nextIndex - 1;
+  }
+\end{lstlisting}
+
+La funzione \texttt{\_insert} accetta come input il \textbf{commitment} e restituisce l'\textbf{indice della foglia} in cui è stato inserito. L'aggiornamento dell'albero consiste nell'inserire commitment nella prima foglia disponibile, ricalcolando successivamente gli hash MiMC intermedi lungo il percorso dalla foglia alla radice.
+
+Il processo utilizza un meccanismo basato su \texttt{currentIndex} e \texttt{filledSubtrees}. A ogni livello, se \texttt{currentIndex} è pari, il nuovo hash viene assegnato al nodo sinistro e il destro è impostato a \texttt{zeros[i]}, aggiornando \texttt{filledSubtrees[i]} con il nuovo valore. Se \texttt{currentIndex} è dispari, il nodo sinistro è recuperato da \texttt{filledSubtrees[i]} e il nuovo hash diventa il destro. Questo sistema consente di mantenere traccia dei sottoalberi completi e di aggiornare efficientemente l'albero.
+
+Il Merkle Tree ha una profondità di 20, permettendo un massimo di \(2^{20} \approx 1.048.576\) foglie. Il numero di foglie attualmente occupate è indicato dalla variabile pubblica \texttt{nextIndex}, che rappresenta sia il contatore dei depositi effettuati sia l'indice della prossima foglia disponibile. Quando \texttt{nextIndex} raggiunge \(2^{20}\), l'albero è pieno e ulteriori depositi non sono più possibili. Attualmente, il valore medio di \texttt{nextIndex} è circa 50.000, ben al di sotto del limite massimo.
+
+
+\subsection{Esempio di esecuzione}
+
+Consideriamo un Merkle Tree di 4 livelli (profondità 3, con $2^3 = 8$ foglie). Analizziamo sinteticamente 6 inserimenti, mostrando lo stato di \texttt{filledSubtrees} e l'albero. Definiamo:
+\begin{itemize}
+    \item Livelli: 0 (foglie) a 3 (radice).
+    \item \texttt{filledSubtrees}: array di dimensione 3 per i livelli 0, 1, 2. Memorizza l'hash del sottoalbero sinistro completo a ogni livello, usato per calcolare i nodi superiori.
+    \item \(Z_i = \text{zeros}[i]\): hash predefiniti per nodi vuoti.
+    \item \(N_i\): hash intermedi (es. \(N1 = \text{hashLeftRight}(C0, C1)\)).
+\end{itemize}
+
+\subsubsection*{Costruzione Iniziale}
+Il Merkle Tree viene inizializzato con \texttt{levels = 3}. \\
+\begin{itemize}
+    \item \texttt{nextIndex} = 0
+    \item \texttt{filledSubtrees} = \([Z_0, Z_1, Z_2]\), dove \(Z_0 = \text{ZERO\_VALUE}\), \(Z_1 = h(Z_0, Z_0)\), \(Z_2 = h(Z_1, Z_1)\)
+    \item Albero:
+    \begin{forest}
+        [R [Z2 [Z1 [Z0] [Z0]] [Z1 [Z0] [Z0]]] [Z2 [Z1 [Z0] [Z0]] [Z1 [Z0] [Z0]]]]
+    \end{forest}
+    \item Radice iniziale: \(R = h(Z_2, Z_2)\)
+\end{itemize}
+
+\subsubsection*{Inserimento 1: Foglia \(C0\) (indice 0)}
+\begin{itemize}
+    \item \texttt{nextIndex} = 1
+    \item \texttt{filledSubtrees} = \([C0, N1, N2]\)
+    \item Albero:
+    \begin{forest}
+        [R [N2 [N1 [C0] [Z0]] [Z1 [Z0] [Z0]]] [Z2 [Z1 [Z0] [Z0]] [Z1 [Z0] [Z0]]]]
+    \end{forest}
+\end{itemize}
+
+\subsubsection*{Inserimento 2: Foglia \(C1\) (indice 1)}
+\begin{itemize}
+    \item \texttt{nextIndex} = 2
+    \item \texttt{filledSubtrees} = \([C0, N1, N2]\)
+    \item Albero:
+    \begin{forest}
+        [R [N2 [N1 [C0] [C1]] [Z1 [Z0] [Z0]]] [Z2 [Z1 [Z0] [Z0]] [Z1 [Z0] [Z0]]]]
+    \end{forest}
+\end{itemize}
+
+\subsubsection*{Inserimento 3: Foglia \(C2\) (indice 2)}
+\begin{itemize}
+    \item \texttt{nextIndex} = 3
+    \item \texttt{filledSubtrees} = \([C2, N1, N2]\)
+    \item Albero:
+    \begin{forest}
+        [R [N2 [N1 [C0] [C1]] [N3 [C2] [Z0]]] [Z2 [Z1 [Z0] [Z0]] [Z1 [Z0] [Z0]]]]
+    \end{forest}
+\end{itemize}
+
+\subsubsection*{Inserimento 4: Foglia \(C3\) (indice 3)}
+\begin{itemize}
+    \item \texttt{nextIndex} = 4
+    \item \texttt{filledSubtrees} = \([C2, N1, N2]\)
+    \item Albero:
+    \begin{forest}
+        [R [N2 [N1 [C0] [C1]] [N3 [C2] [C3]]] [Z2 [Z1 [Z0] [Z0]] [Z1 [Z0] [Z0]]]]
+    \end{forest}
+\end{itemize}
+
+\subsubsection*{Inserimento 5: Foglia \(C4\) (indice 4)}
+\begin{itemize}
+    \item \texttt{nextIndex} = 5
+    \item \texttt{filledSubtrees} = \([C4, N5, N2]\)
+    \item Albero:
+    \begin{forest}
+        [R [N2 [N1 [C0] [C1]] [N3 [C2] [C3]]] [N4 [N5 [C4] [Z0]] [Z1 [Z0] [Z0]]]]
+    \end{forest}
+\end{itemize}
+
+\subsubsection*{Inserimento 6: Foglia \(C5\) (indice 5)}
+\begin{itemize}
+    \item \texttt{nextIndex} = 6
+    \item \texttt{filledSubtrees} = \([C4, N5, N2]\)
+    \item Albero:
+    \begin{forest}
+        [R [N2 [N1 [C0] [C1]] [N3 [C2] [C3]]] [N4 [N5 [C4] [C5]] [Z1 [Z0] [Z0]]]]
+    \end{forest}
+\end{itemize}
+
+\subsubsection*{Inserimento 7: Foglia \(C6\) (indice 6)}
+\begin{itemize}
+    \item \texttt{nextIndex} = 7
+    \item \texttt{filledSubtrees} = \([C6, N5, N2]\)
+    \item Albero:
+    \begin{forest}
+        [R [N2 [N1 [C0] [C1]] [N3 [C2] [C3]]] [N4 [N5 [C4] [C5]] [N6 [C6] [Z0]]]]
+    \end{forest}
+\end{itemize}
+
+Dove:
+\begin{itemize}
+    \item \(N1 = \text{hashLeftRight}(C0, C1)\),
+    \item \(N3 = \text{hashLeftRight}(C2, C3)\),
+    \item \(N5 = \text{hashLeftRight}(C4, C5)\),
+    \item \(N6 = \text{hashLeftRight}(C6, Z0)\),
+    \item \(N2 = \text{hashLeftRight}(N1, N3)\),
+    \item \(N4 = \text{hashLeftRight}(N5, N6)\),
+    \item \(R = \text{hashLeftRight}(N2, N4)\) (ultimo stato).
+\end{itemize}
+
+\section{Generazione della prova}
+
+In questo step avviene il passaggio chiave di tutto il protocollo, bisogna dimostrare di avere conscenza della preimmagine di un commitment presente nel Merkle Tree, senza poterla rivelare, in quanto questo porterebbe a poter calcolare il commitment e quindi collegare l'azione di deposit con quella di whitrdraw, andando ad eliminare totalmente tutto il lavoro fatto fino ad ora, per poter garantire l'anonimato.
+
+Questo passaggio avviene tramite l'utilizzo di algoritmo zk-SNARK.
+
+Il \textbf{witness} é l'insieme di dati che serve per generare una prova che dimostra che siamo al corrente dei dati privati, senza peró rivelarli.
+
+Questo passaggio non puó avvenire direttamente nello smart contract di Tornado Cash, in quanto i parametri passati in input devono rimanere privati. Esso viene quindi eseguito dall'utente off-chain sul proprio device (la repository github di Tornado Cash fornisce dei tools per poter fare questo passaggio da linea di comando o da interfaccia grafica, per facilitare il lavoro all'utente).
+
+Andiamo ad analizzare il codice sorgente della CLI:
+
+\url{https://github.com/tornadocash/tornado-cli/blob/master/cli.js}
+
+\begin{lstlisting}
+    async function generateProof({ deposit, currency, amount, recipient, relayerAddress = 0, fee = 0, refund = 0 }) {
+  // Compute merkle proof of our commitment
+  const { root, pathElements, pathIndices } = await generateMerkleProof(deposit, currency, amount);
+
+  // Prepare circuit input
+  const input = {
+    // Public snark inputs
+    root: root,
+    nullifierHash: deposit.nullifierHash,
+    recipient: bigInt(recipient),
+    relayer: bigInt(relayerAddress),
+    fee: bigInt(fee),
+    refund: bigInt(refund),
+
+    // Private snark inputs
+    nullifier: deposit.nullifier,
+    secret: deposit.secret,
+    pathElements: pathElements,
+    pathIndices: pathIndices
+  }
+
+  console.log('Generating SNARK proof');
+  console.time('Proof time');
+  const proofData = await websnarkUtils.genWitnessAndProve(groth16, input, circuit, proving_key);
+  const { proof } = websnarkUtils.toSolidityInput(proofData);
+  console.timeEnd('Proof time');
+
+  const args = [
+    toHex(input.root),
+    toHex(input.nullifierHash),
+    toHex(input.recipient, 20),
+    toHex(input.relayer, 20),
+    toHex(input.fee),
+    toHex(input.refund)
+  ];
+
+  return { proof, args };
+}
+
+\end{lstlisting}
+
+
+Il witness del deposito é dato dai sequenti dati privati:
+
+\begin{itemize}
+    \item \textbf{secret}
+    \item \textbf{nullifier} 
+    \item \textbf{pathElements}: i nodi appartenenti al path dalla leaf dal deposito, alla Merkle Tree Root
+    \item \textbf{pathIndices}: gli indici dei nodi di pathElements
+\end{itemize}
+
+e dai seguenti dati pubblici:
+
+\begin{itemize}
+    \item \textbf{root}: una qualsiasi merkleRoot contenuta nella variable \verb|roots|
+    \item \textbf{nullifierHash}: il Pedersen Hash del nullifier
+    \item \textbf{relayer}: opzionale, l'indirizzo del relayer
+    \item \textbf{fee}: opzionale, le fee da dare al relayer
+    \item \textbf{refund}: opzionale, il refund da dare al relayer
+\end{itemize}
+
+La SNARK proof viene generata dalla libreria \verb|websnark| mediante la funzione \verb|genWitnessAndProof|.
+
+\section{Whitdrawal}
+
+\begin{lstlisting}
+    **
+    @dev Withdraw a deposit from the contract. `proof` is a zkSNARK proof data, and input is an array of circuit public inputs
+    `input` array consists of:
+      - merkle root of all deposits in the contract
+      - hash of unique deposit nullifier to prevent double spends
+      - the recipient of funds
+      - optional fee that goes to the transaction sender (usually a relay)
+  */
+  function withdraw(bytes calldata _proof, bytes32 _root, bytes32 _nullifierHash, address payable _recipient, address payable _relayer, uint256 _fee, uint256 _refund) external payable nonReentrant {
+    require(_fee <= denomination, "Fee exceeds transfer value");
+    require(!nullifierHashes[_nullifierHash], "The note has been already spent");
+    require(isKnownRoot(_root), "Cannot find your merkle root"); // Make sure to use a recent one
+    require(verifier.verifyProof(_proof, [uint256(_root), uint256(_nullifierHash), uint256(_recipient), uint256(_relayer), _fee, _refund]), "Invalid withdraw proof");
+
+    nullifierHashes[_nullifierHash] = true;
+    _processWithdraw(_recipient, _relayer, _fee, _refund);
+    emit Withdrawal(_recipient, _nullifierHash, _relayer, _fee);
+  }
+\end{lstlisting}
+
+
+Una volta effettuato un deposito, per poterlo ritirare, bisogna invocare la funzione whitdraw.
+
+I dati che deve avere in possesso un utente per poter ritrare i fondi sono i parametri pubblici utilizzati per generare la proof, e la proof stessa.
+
+Il contratto andrá ad eseguire delle operazioni di controllo:
+
+\begin{enumerate}
+    \item Le relayer fees non devono superare l'ammontare del deposito (per evitare underflow).
+    \item Il nullifierHash non deve essere presente nel dizionario nullifierHashes, qualora fosse presente indicherebbe che l'ammontare é gia stato ritirato (double spending).
+    \item La Merkle Tree Root è presente nella variabile root del Merkle Tree.
+    \item Controlla che la proof sia effettivamente valida.
+\end{enumerate}
+
+Una volta che le condizioni sono valide, viene aggiunto l'hash del nullifier al dizionario nullifierHashes e viene emesso l'evento Withdrawal.

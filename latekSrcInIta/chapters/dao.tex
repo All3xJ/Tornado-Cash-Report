@@ -1,0 +1,64 @@
+\chapter{DAO}
+
+L'ecosistema di Tornado Cash include un \textbf{token ERC-20}, \textbf{TORN}, il quale svolge una funzione di \textbf{governance}. Esso conferisce ai detentori il diritto di proporre e votare modifiche riguardanti lo sviluppo del protocollo attraverso la \textbf{DAO} (Decentralized Autonomous Organization).
+
+La distribuzione iniziale del token TORN segue il seguente schema:
+
+\begin{itemize}
+    \item \textbf{5\% (500.000 TORN)}: distribuiti tramite \textbf{airdrop} ai primi utenti che hanno utilizzato i pool ETH di Tornado.Cash, come forma di riconoscimento per il loro supporto iniziale al protocollo.
+    \item \textbf{10\% (1.000.000 TORN)}: assegnati al programma di ``\textbf{anonymity mining}'' per incentivare gli utenti a mantenere i fondi nei pool, aumentando così l'anonymity set. Questi token vengono distribuiti linearmente nell’arco di un anno e, una volta esauriti, si prevede che Tornado Cash abbia raggiunto una massa critica di utenti tale da non necessitare più di questo incentivo. Il programma di anonymity mining è infatti concluso dal 2021.
+    \item \textbf{55\% (5.500.000 TORN)}: riservati al \textbf{tesoro della DAO}, con rilascio lineare in cinque anni (dopo un periodo iniziale di "cliff" di tre mesi, durante il quale i fondi rimangono bloccati). Questi fondi sono gestiti attraverso votazioni della DAO, che può decidere di utilizzarli per sviluppi futuri, audit di sicurezza, incentivi alla crescita del protocollo o altro. 
+    \item \textbf{30\% (3.000.000 TORN)}: destinati agli sviluppatori \textbf{fondatori} e ai primi sostenitori del progetto, con rilascio lineare in tre anni (dopo un periodo di "cliff" di un anno, in cui i token non possono essere ancora riscattati).
+\end{itemize}
+
+\section{Come presentare una proposta?}
+
+Per poter partecipare alla governance di Tornado.Cash, un utente deve prima mettere i suoi TORN in \textbf{stake}. Se un utente vota o crea una proposta, i token non possono essere sbloccati fino alla fine del processo, che dura \textbf{8.25 giorni} dalla creazione della proposta.
+Per creare una proposta, un utente deve avere almeno \textbf{1.000 TORN} (attualmente sono circa 6500€).
+Ogni proposta deve essere uno smart contract il cui codice è stato verificato e che viene eseguito dallo smart contract di governance tramite la funzione \textbf{delegatecall}.
+Il periodo per votare una proposta è di \textbf{5 giorni}.  
+Una proposta avrà successo se viene approvata dalla maggioranza e se vengono effettuati almeno \textbf{25.000 voti} (1 TORN = 1 voto).
+Dopo l'approvazione di una proposta, essa è soggetta a un periodo di \textbf{timelock} di 2 giorni. Al termine di tale periodo, qualsiasi utente può eseguire la proposta. Tuttavia, se la proposta non viene eseguita da nessun utente entro i 3 giorni successivi alla scadenza del timelock, essa viene considerata scaduta e non può più essere eseguita.
+
+Una proposta può riguardare le seguenti operazioni:
+
+\begin{itemize}
+    \item L’aggiunta di un nuovo pool (dove gli utenti di Tornado Cash depositano o ritirano fondi) nel \textbf{proxy}, che è uno smart contract centrale che memorizza gli indirizzi delle pool in una struttura dati modificabile, permettendo l'aggiunta di nuovi pool attraverso la governance.
+    \item La modifica dei parametri relativi ai tassi di \textbf{ricompensa}.
+    \item L'attivazione o disattivazione del token \textbf{TORN}.
+    \item La modifica di alcuni contratti di mining principali, come il contratto TornadoTrees.
+    \item Una combinazione di tutte le operazioni sopra menzionate.
+\end{itemize}
+
+\section{Staking}
+
+Con l'approvazione della decima proposta di governance, il token TORN ha acquisito una nuova funzionalità legata allo \textbf{staking}, ampliandone l'utilità nell'ecosistema Tornado Cash.
+
+Lo staking è un meccanismo che, oltre alla possibilità di votare proposte, incoraggia gli utenti a bloccare una quantità di TORN ricevendo in cambio ricompense proporzionali all'importo immobilizzato. Queste ricompense consistono in un quantitativo aggiuntivo di TORN, distribuito in base alla quantità stakata.
+
+\textbf{Da dove provengono queste ricompense?}
+
+Le ricompense per lo staking di TORN non derivano da un processo inflazionario (cioè dalla creazione di nuovi token), ma dalle commissioni generate dall'uso del protocollo. Questo è reso possibile dall'introduzione di un \textbf{registro decentralizzato dei relayer}, che regola l'operatività dei relayer.
+
+I relayer sono entità che facilitano i prelievi degli utenti nel protocollo. Per essere inclusi nell'interfaccia utente di Tornado Cash, devono depositare una quantità prestabilita (minimo 5k, e una quantità superiore fa aumentare lo "score" del relayer) di TORN come stake e mantenere un saldo sufficiente per coprire le commissioni dovute al contratto di staking. Quando un utente effettua un prelievo tramite un relayer, quest'ultimo addebita una tariffa all'utente per il servizio. Separatamente, una commissione pari allo \textbf{0,3\%} del valore del prelievo (calcolata in ETH) viene convertita in TORN al prezzo di mercato corrente e detratta dallo stake del relayer. Questa quantità di TORN viene poi redistribuita agli utenti che partecipano allo staking.
+
+Questo sistema crea un equilibrio di incentivi: i relayer guadagnano visibilità nell'interfaccia e incassano tariffe dai prelievi, mentre gli utenti che stakano TORN ricevono ricompense proporzionali, sostenute dalle commissioni pagate dai relayer al protocollo.
+
+
+\section{Partecipazione della community}
+
+La \textbf{DAO} di \textbf{Tornado Cash} ha bisogno di contributi da parte di diverse figure per continuare a crescere e svilupparsi, tra cui:
+
+\begin{itemize}
+    \item \textbf{Sviluppatori} che proseguono e migliorano lo sviluppo del protocollo.
+    \item \textbf{Auditori} che eseguono revisioni del codice per individuare bug e vulnerabilità.
+    \item \textbf{Content creator} che promuovono e diffondono il protocollo.
+\end{itemize}
+
+A giugno 2021, con la proposta numero 7, la community ha deciso di creare un fondo per premiare coloro che contribuiscono allo sviluppo della DAO.
+I fondi sono gestiti tramite un \textbf{Multi-signature Wallet} su Gnosis Safe (uno smart contract di Ethereum che permette la creazione di multi-sig wallet).
+Le chiavi di questo wallet sono state distribuite a \textbf{5 utenti} scelti tramite votazione.  
+Per validare una transazione sono necessarie \textbf{4 firme} (4-of-5).
+Questi utenti non decidono autonomamente, ma il loro compito è quello di dare o negare la propria firma in base alle votazioni della community.
+Per garantire l'onestà di queste parti, questi utenti ricevono \textbf{100 TORN} al mese dal fondo community.
+La community può decidere di \textbf{revocare} il ruolo di uno di questi utenti in qualsiasi momento.

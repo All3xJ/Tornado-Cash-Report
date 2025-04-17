@@ -1,0 +1,223 @@
+\chapter{Approfondimento: zk-SNARKs}
+\label{cap:zk-snarks}
+
+\section{Circuito}
+
+Un circuito nel contesto di zk-SNARK, usato in Tornado Cash, è una sequenza di vertici e archi che forma un anello chiuso. Più precisamente:
+
+\begin{itemize}
+    \item Il vertice iniziale e il vertice finale coincidono
+    \item Non ci sono ripetizioni di archi o vertici intermedi (eccetto per il vertice iniziale/finale)
+    \item La sequenza è chiusa, formando una sorta di anello
+\end{itemize}
+
+In pratica, il circuito è un grafo ciclico, dove i dati fluiscono attraverso i vertici (operazioni) collegati da archi (relazioni tra variabili).
+
+In Tornado Cash i circuiti vengono usati come struttura per la generazione di witnesses.
+
+Circom è un linguaggio dichiarativo basato su R1CS (Rank-1 Constraint System)\cite{ben2013snarks}, un modello matematico per rappresentare circuiti aritmetici. Un circuito scritto in Circom è quindi una sequenza di operazioni che vengono tradotte/compilate in un sistema di vincoli matematici che possono essere utilizzati per generare prove zk-SNARKs o zk-STARKs.
+
+Un R1CS è un modo per esprimere un calcolo o un problema aritmetico come un insieme di equazioni quadratiche di rango 1. In pratica, trasforma un programma o una relazione matematica in un sistema di vincoli che può essere verificato in modo efficiente. 
+
+Ogni vincolo è della forma: $A\cdot x\cdot B\cdot x = C\cdot x$ dove:
+
+\begin{itemize}
+    \item x è un vettore di variabili (che include sia le variabili di input che quelle intermedie e di output del calcolo).
+    \item A, B e C sono vettori di coefficienti (spesso rappresentati come matrici quando si considerano più vincoli).
+    Il simbolo "$\cdot$" indica il prodotto scalare.
+\end{itemize}
+
+In questo contesto, "rango 1" significa che ogni vincolo può essere espresso come un prodotto di due espressioni lineari ($A\cdot x$ e $B\cdot x$) che, moltiplicate, devono eguagliare una terza espressione lineare ($C\cdot x$).
+
+La compilazione del circuito avviene nella seguente maniera:
+
+\begin{enumerate}
+    \item Un calcolo viene scomposto in una sequenza di operazioni di base.
+    \item Ogni operazione viene tradotta in un vincolo R1CS.
+    \item Il vettore x contiene una "testimonianza" (witness), ossia i valori che soddisfano tutti i vincoli contemporaneamente.
+\end{enumerate}
+
+\subsection{Generazione del witness}
+
+\begin{lstlisting}
+    // Verifies that commitment that corresponds to given secret and nullifier is included in the merkle tree of deposits
+template Withdraw(levels) {
+    signal input root;
+    signal input nullifierHash;
+    signal input recipient; // not taking part in any computations
+    signal input relayer;  // not taking part in any computations
+    signal input fee;      // not taking part in any computations
+    signal input refund;   // not taking part in any computations
+    signal private input nullifier;
+    signal private input secret;
+    signal private input pathElements[levels];
+    signal private input pathIndices[levels];
+
+    component hasher = CommitmentHasher();
+    hasher.nullifier <== nullifier;
+    hasher.secret <== secret;
+    hasher.nullifierHash === nullifierHash;
+
+    component tree = MerkleTreeChecker(levels);
+    tree.leaf <== hasher.commitment;
+    tree.root <== root;
+    for (var i = 0; i < levels; i++) {
+        tree.pathElements[i] <== pathElements[i];
+        tree.pathIndices[i] <== pathIndices[i];
+    }
+
+    // Add hidden signals to make sure that tampering with recipient or fee will invalidate the snark proof
+    // Most likely it is not required, but it's better to stay on the safe side and it only takes 2 constraints
+    // Squares are used to prevent optimizer from removing those constraints
+    signal recipientSquare;
+    signal feeSquare;
+    signal relayerSquare;
+    signal refundSquare;
+    recipientSquare <== recipient * recipient;
+    feeSquare <== fee * fee;
+    relayerSquare <== relayer * relayer;
+    refundSquare <== refund * refund;
+}
+\end{lstlisting}
+
+Il circuito Withdraw ha lo scopo di:
+\begin{enumerate}
+    \item Verificare che un certo commitment (basato su nullifier e secret) sia valido e coerente con il nullifierHash pubblico.
+    \item Confermare che questo commitment sia presente in un albero di Merkle con una certa radice (root).
+    \item Assicurare che parametri aggiuntivi (come recipient, fee, ecc.) siano vincolati nella prova.
+\end{enumerate}
+
+e lo fa nella seguente maniera:
+
+\begin{enumerate}
+    \item \textbf{Nullifier Hash Check}: il circuito prende gli input privati nullifier e secret e li passa a un componente (CommitmentHasher) che calcola due hash Pedersen:
+        \begin{itemize}
+            \item Il \textbf{commitment hash}: l'hash dell'intero messaggio di commitment (che combina nullifier e secret).
+            \item Il \textbf{nullifier hash}: l'hash del solo nullifier.
+        \end{itemize}
+        \textbf{Verifica}: Il circuito confronta il nullifier hash calcolato e il nullifierHash fornito come input pubblico, e impone che siano uguali (hasher.nullifierHash === nullifierHash)
+    \item \textbf{Merkle Tree Check}: il circuito usa il commitment hash (calcolato sopra), la radice pubblica dell'albero di Merkle (root), e gli input privati pathElements e pathIndices (il percorso nell'albero) per verificare che il commitment sia una foglia valida dell'albero.
+    \begin{itemize}
+        \item Parte dalla foglia (il commitment hash) e usa un componente chiamato Muxer per combinare il commitment con il primo elemento del percorso (pathElements[0]).
+        \item L'input pathIndices[0] (0 o 1) indica se il commitment hash è a sinistra o a destra nel calcolo dell'hash del livello successivo, usando un hasher MiMC.
+        \item Questo processo si ripete livello per livello, usando l'hash del livello precedente e il successivo pathElements[i], fino a calcolare un hash finale
+        \item Il circuito verifica che questo hash finale sia uguale al Merkle root pubblico (tree.root $<==$ root).
+    \end{itemize}
+    \item \textbf{Extra Withdrawal Parameter Check}: il circuito prende gli input pubblici recipient, relayer, fee, e refund e calcola i loro quadrati (es. recipientSquare $<==$ recipient * recipient).  Anche se questi valori non sono usati nei calcoli principali, aggiungerli al witness crea vincoli che "bloccano" i parametri della transazione. Se qualcuno cercasse di modificarli dopo la generazione della prova, i vincoli non sarebbero più soddisfatti e la prova risulterebbe invalida.
+\end{enumerate}
+
+Dopo aver creato il circuito, il compito di generare il witness viene affidato alla funzione calculateWitness (\url{https://github.com/tornadocash/snarkjs/blob/master/src/calculateWitness.js}). Questa funzione prende in input il circuito e l'insieme di segnali di input forniti dall’utente. Il suo obiettivo è calcolare e restituire un array, che contiene i valori di tutti i segnali del circuito necessari per soddisfare i vincoli definiti.
+
+Generare il witness significa eseguire il circuito passo per passo: assegnare gli input, calcolare i valori intermedi, e verificare che tutti i vincoli siano rispettati. Il risultato è una lista ordinata di numeri che rappresenta la "soluzione" del circuito, pronta per essere usata come base per una ZKP.
+
+Questo witness viene poi passato a un sistema come SNARK (snarkjs) per generare una prova crittografica compatta. Tale prova può essere verificata pubblicamente da chiunque per confermare che i vincoli del circuito sono soddisfatti, senza rivelare i dati privati contenuti nel witness.
+
+\subsection{Calcolo della proof}
+
+Groth16 è un sistema di zero-knowledge proofs di tipo zk-SNARK. È stato sviluppato da Jens Groth nel 2016 ed è uno degli schemi più utilizzati per dimostrare che un calcolo è stato eseguito correttamente senza rivelare i dati privati usati nel calcolo.
+
+Groth16 trasforma un circuito aritmetico in un Quadratic Arithmetic Program (QAP), che rappresenta i vincoli come polinomi. La prova dimostra che esiste un witness 
+$w$ che soddisfa l'equazione polinomiale del QAP, senza rivelarlo. 
+
+La prova è composta da tre elementi $\pi_A\in G_1,\pi_B\in G_2$ e $\pi_C\in G_1$ dove $G_1$ e $G_2$ sono gruppi su una curva ellittca (quella utilizzata da Tornado Cash è BN254).
+
+\subsubsection{Setup e QAP}
+
+Il circuito viene convertito in un QAP con polinomi \(A_i(x)\), \(B_i(x)\), \(C_i(x)\) per ogni segnale \(w_i\) nel witness, e un polinomio divisore \(Z(x)\), detto \emph{target polynomial}. La condizione del QAP è:
+\begin{equation}
+    \sum_{i=0}^{m-1} w_i A_i(x) \cdot \sum_{i=0}^{m-1} w_i B_i(x) = \sum_{i=0}^{m-1} w_i C_i(x) + H(x) \cdot Z(x)
+\end{equation}
+dove:
+\begin{itemize}
+    \item \(m\): numero totale di segnali,
+    \item \(w_i\): valori del witness,
+    \item \(H(x)\): polinomio quoziente, calcolato dal prover.
+\end{itemize}
+
+\subsubsection{Proving Key}
+La proving key contiene valori precalcolati:
+\begin{itemize}
+    \item \(\alpha, \beta, \delta \in \mathbb{F}_r\): scalari casuali,
+    \item \([A_i]_1 = [A_i(\tau)]_1\), \([B_i]_1 = [B_i(\tau)]_1\), \([B_i]_2 = [B_i(\tau)]_2\), \([C_i]_1 = [C_i(\tau)]_1\): valutazioni dei polinomi in un punto segreto \(\tau\), mappate su \(G_1\) e \(G_2\),
+    \item \([\alpha]_1\), \([\beta]_1\), \([\beta]_2\), \([\delta]_1\), \([\delta]_2\): punti generati da \(\alpha\), \(\beta\), \(\delta\),
+    \item \([H_i]_1\): punti per i coefficienti di \(H(x)\), dove \(H(x) = \sum h_i x^i\).
+\end{itemize}
+
+\subsection{Generazione della prova}
+La prova combina il witness \(w\) con la proving key, aggiungendo randomizzazione per garantire zero-knowledge.
+
+\subsection*{1. Calcolo iniziale dei termini base}
+\begin{itemize}
+    \item \(A\):
+    \begin{equation}
+        A = \sum_{i=0}^{m-1} w_i [A_i(\tau)]_1
+    \end{equation}
+    Somma dei segnali \(w_i\) moltiplicati per i punti \([A_i]_1\).
+    
+    \item \(B\):
+    \begin{equation}
+        B_1 = \sum_{i=0}^{m-1} w_i [B_i(\tau)]_1, \quad B_2 = \sum_{i=0}^{m-1} w_i [B_i(\tau)]_2
+    \end{equation}
+    Due somme: una in \(G_1\) (\(B_1\)) e una in \(G_2\) (\(B_2\)).
+    
+    \item \(C\):
+    \begin{equation}
+        C = \sum_{i=n_{pub}+1}^{m-1} w_i [C_i(\tau)]_1
+    \end{equation}
+    Somma dei segnali privati (escludendo i pubblici e il segnale "one").
+    
+    \item \(H\):
+    \begin{equation}
+        H = \sum_{i=0}^{d-1} h_i [x^i]_1, \quad \text{dove} \quad H(x) = \frac{A(x) \cdot B(x) - C(x)}{Z(x)}
+    \end{equation}
+    \(H(x)\) è il polinomio quoziente, con \(d\) grado di \(Z(x)\).
+\end{itemize}
+
+Si scelgono due scalari casuali \(r, s \in \mathbb{F}_r\), usati per mascherare la prova.
+
+\begin{itemize}
+    \item \(\pi_A\):
+    \begin{equation}
+        \pi_A = A + [\alpha]_1 + r \cdot [\delta]_1
+    \end{equation}
+    
+    \item \(\pi_B\):
+    \begin{equation}
+        \pi_B = B_2 + [\beta]_2 + s \cdot [\delta]_2
+    \end{equation}
+    
+    \item \(\pi_C\):
+    \begin{equation}
+        \pi_C = C + H + s \cdot \pi_A + r \cdot B_1 - r \cdot s \cdot [\delta]_1
+    \end{equation}
+\end{itemize}
+
+\subsection{Verifica}
+La verifica della prova in Groth16 controlla se una prova \((\pi_A, \pi_B, \pi_C)\), generata per un \emph{Quadratic Arithmetic Program} (QAP), soddisfa i vincoli di un circuito aritmetico senza rivelare il witness \(w\). La verifica si basa su un'equazione di accoppiamento (\emph{pairing}) sulle curve ellittiche \(G_1\) e \(G_2\), utilizzando la \emph{verifying key} e i segnali pubblici del witness.
+
+\subsubsection{Equazione di verifica:}
+La verifica controlla l'equazione di accoppiamento:
+\begin{equation}
+    e(\pi_A, \pi_B) = e([\alpha]_1, [\beta]_2) \cdot e\left(\sum_{i=0}^{n_{pub}} w_i [IC_i]_1, [\gamma]_2\right) \cdot e(\pi_C, [\delta]_2)
+\end{equation}
+dove \(e: G_1 \times G_2 \to G_T\) è una funzione di accoppiamento bilineare. 
+
+La prova è valida se l'equazione è soddisfatta, cioè se entrambi i lati sono uguali in \(G_T\).
+
+\subsubsection{Calcolo della combinazione lineare \(vk_x\):}
+\begin{equation}
+    vk_x = [IC_0]_1 + \sum_{i=1}^{n_{pub}} w_i [IC_i]_1
+\end{equation}
+\(vk_x\) rappresenta i segnali pubblici pesati dai punti della verifying key.
+
+\subsubsection*{Verifica dell'accoppiamento}
+Si calcola:
+\begin{itemize}
+    \item Lato sinistro: \(e(-\pi_A, \pi_B)\),
+    \item Lato destro: \(e([\alpha]_1, [\beta]_2) \cdot e(vk_x, [\gamma]_2) \cdot e(\pi_C, [\delta]_2)\),
+\end{itemize}
+dove \(-\pi_A\) è la negazione di \(\pi_A\) in \(G_1\). La prova è valida se:
+\begin{equation}
+    e(-\pi_A, \pi_B) = e([\alpha]_1, [\beta]_2) \cdot e(vk_x, [\gamma]_2) \cdot e(\pi_C, [\delta]_2)
+\end{equation}
+

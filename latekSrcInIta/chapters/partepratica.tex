@@ -1,0 +1,814 @@
+\chapter{Parte pratica}
+
+In questa sezione andiamo ad analizzare una transazione usando Tornado Cash. Non potendo fare ciò, per questioni legali, col contratto originale. Abbiamo deployato una copia del contratto sulla TestNet Sepolia Base.
+
+\section{Sepolia Base Testnet}
+
+La Sepolia Base Testnet è una rete di prova pubblica utilizzata per sviluppare e testare applicazioni sulla blockchain Base, un Layer 2 di Ethereum creato da Coinbase\cite{coinbase}. Questa testnet fornisce un ambiente sicuro per testare smart contract e dApp.
+
+Questa rete replica il comportamento di Ethereum, consentendo agli sviluppatori di testare le proprie applicazioni con la certezza che i risultati saranno coerenti una volta che verranno distribuite sulla rete principale di Ethereum.
+
+La principale differenza riguarda il protocollo di consenso. Poiché le monete su Sepolia Base non hanno valore reale, non esiste un incentivo economico per garantire il corretto funzionamento della rete attraverso il meccanismo di Proof of Stake. Per questo motivo, i validatori vengono selezionati direttamente da Coinbase, rendendo la rete centralizzata. Tuttavia, questo non rappresenta un problema, poiché Sepolia Base è un ambiente di test progettato esclusivamente per lo sviluppo e la sperimentazione.
+
+Per ottenere Ether su Sepolia Base, è necessario utilizzare le faucet, servizi che distribuiscono gratuitamente una piccola quantità di ETH ai wallet richiedenti. Questi ETH di test vengono utilizzati per pagare le commissioni di transazione, consentendo agli sviluppatori di interagire con la blockchain senza costi reali.
+
+\section{Poseidon Hash}
+
+La versione di Tornado Cash che abbiamo creato ha un miglioramento rispetto alla versione base: l'utilizzo di Poseidon Hash al posto di Pedersen Hash. Questa miglioria è stata proposta da ABDK Consulting, quando è stato chiesto l'audit del contratto di Tornado Cash.
+
+Un audit è una verifica della sicurezza di un contratto. Uno sviluppatore può richiedere ad un'azienda un audit, la quale dopo aver studiato il codice ne garantisce la sicurezza, fornendone un certificato. Questo è uno step cruciale nelle blockchain, in quanto in un ambiente decentralizzato se interagisci col contratto sbagliato rischi di perdere i soldi e non c'è nessun'entità centrale che può cancellare la transazione, quindi i progetti fanno affidamento su questi audit per dimostrare la sicurezza dei proprio contratti.
+
+\subsection{Parte tecnica su Poseidon Hash}
+
+Poseidon Hash è una funzione di hashing crittografica progettata per garantire alta efficienza nei circuiti a conoscenza zero (Zero-Knowledge, ZK) e nelle prove di conoscenza zero (Zero-Knowledge Proofs, ZKPs), come SNARKs e STARKs. È stata introdotta nel 2019 nel paper \textit{"Poseidon: A New Hash Function for Zero-Knowledge Proof Systems"} \cite{grassi2019poseidon}, come parte di una famiglia di hash ottimizzate per circuiti aritmetici. Nel 2023, gli stessi autori hanno proposto una versione aggiornata, Poseidon2 \cite{grassi2023poseidon2}, che migliora ulteriormente le prestazioni.
+
+Poseidon Hash è costruita come una funzione a spugna (\textit{sponge function}) che utilizza la permutazione \(\text{POSEIDON}^\pi\), una variante della strategia HadesMiMC. Mappa stringhe su un campo finito \(\mathbb{F}_p\) (dove \(p\) è un numero primo approssimativamente \(2^n > 2^{31}\)) in stringhe a lunghezza fissa sullo stesso campo. La permutazione \(\text{POSEIDON}^\pi\) si basa su una struttura SPN (\textit{Substitution-Permutation Network}), combinando strati di S-box non lineari (ad esempio \(x^\alpha\), con \(\alpha = 5\) o \(3\)) e strati lineari (moltiplicazioni con matrici MDS). Questa struttura è ottimizzata per i sistemi R1CS (\textit{Rank-1 Constraint Systems}), comunemente usati nei circuiti SNARKs, riducendo significativamente il numero di vincoli rispetto ad altre funzioni come Pedersen Hash e MiMC.
+
+Il paper originale sottolinea un vantaggio chiave:  
+\begin{quote}
+``La nostra funzione di hash POSEIDON utilizza fino a 8 volte meno vincoli per bit di messaggio rispetto a Pedersen Hash.''
+\end{quote}
+Questa efficienza è cruciale per applicazioni ZK, dove il numero di vincoli determina la complessità computazionale della generazione e verifica delle prove.
+
+Poseidon Hash è suggerita per tutte le applicazioni che richiedono funzioni di hashing compatibili con ZK, in particolare:
+\begin{enumerate}
+    \item \textbf{Commitments:} Per protocolli in cui si dimostra la conoscenza di un valore impegnato senza rivelarlo. Si consiglia l’uso di Poseidon-128 con permutazioni a chiamata singola e larghezze (\textit{width}) da 2 a 5 elementi di campo. Rispetto a Pedersen Hash, Poseidon è più veloce e può essere utilizzato anche in schemi di firma, riducendo l’impronta del codice.
+    \item \textbf{Hashing di Oggetti Multipli:} Per codificare campi multipli come elementi di campo e dimostrarne proprietà in ZK. Si suggerisce l’uso di una spugna a lunghezza variabile con Poseidon-128 o Poseidon-80 e larghezza 5 (con \textit{rate} 4).
+    \item \textbf{Alberi di Merkle:} Per consentire prove ZK della conoscenza di una foglia in un albero, con eventuali affermazioni sul contenuto della foglia. Si raccomanda un’arità 4 (larghezza 5) con Poseidon-128 per le migliori prestazioni, sebbene siano supportate arità più convenzionali (es.\ 2 o 8).
+\end{enumerate}
+
+Nei SNARKs, il campo primo è spesso il campo scalare di una curva ellittica \textit{pairing-friendly}. La permutazione \(\text{POSEIDON}^\pi\) può essere rappresentata come un circuito con un numero relativamente basso di \textit{gate}, ma i suoi parametri devono essere adattati al valore di \(p\). In particolare, dopo aver fissato \(p\), si verifica se \(x^\alpha\) è invertibile in \(\mathbb{F}_p\), condizione soddisfatta se \(p \mod \alpha \neq 1\).
+
+Poseidon Hash si distingue per la sua efficienza rispetto a Pedersen Hash e MiMC, due funzioni di hashing usate in contesti ZK. La tabella seguente riporta il numero di vincoli R1CS necessari per dimostrare la conoscenza di una foglia in un albero di Merkle con \(2^{30}\) elementi, confrontando Poseidon-128 con Pedersen Hash e MiMC-2p/p (Feistel):
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{|c|c|c|c|c|}
+        \hline
+        \multicolumn{5}{|c|}{Poseidon-128} \\
+        \hline
+        Arità & Larghezza & \(R_F\) & \(R_P\) & Vincoli Totali \\
+        \hline
+        2:1 & 3 & 8 & 57 & 7290 \\
+        4:1 & 5 & 8 & 60 & 4500 \\
+        8:1 & 9 & 8 & 63 & 4050 \\
+        \hline
+        \multicolumn{5}{|c|}{Pedersen Hash} \\
+        \hline
+        - & 171 & - & - & 41400 \\
+        \hline
+        \multicolumn{5}{|c|}{MiMC-2p/p (Feistel)} \\
+        \hline
+        1:1 & 2 & 324 & - & 19440 \\
+        \hline
+    \end{tabular}
+    \caption{Confronto dei vincoli R1CS per un albero di Merkle con \(2^{30}\) elementi.}
+\end{table}
+
+\begin{itemize}
+    \item \textbf{Poseidon-128:} Con arità 4:1 (larghezza 5), richiede solo 4500 vincoli totali, grazie a un numero ridotto di round completi (\(R_F = 8\)) e parziali (\(R_P = 60\)).
+    \item \textbf{Pedersen Hash:} Richiede 41.400 vincoli, un valore significativamente più alto, dovuto alla sua struttura basata su logaritmi discreti, meno adatta ai circuiti aritmetici.
+    \item \textbf{MiMC-2p/p:} Con 19.440 vincoli, è più efficiente di Pedersen ma meno di Poseidon, a causa del maggior numero di round (324) necessari per garantire la sicurezza.
+\end{itemize}
+
+\subsection{Implementazione}
+
+Per implementare i contratti su Sepolia Base, è stato utilizzato il codice fornito da Chih Cheng Liang, uno sviluppatore della Ethereum Foundation, che ha reso pubblica la sua versione  (\url{https://github.com/ChihChengLiang/poseidon-tornado})
+
+Posiedon Hash viene utilizzato al posto di MiMC per fare l'hash delle foglie e al posto del Pedersen Hash per fare il commitment.
+
+Il commitment non utilizza più il valore secret ma solamente il nullifier:
+
+\verb|commitment = PoseidonHash(nullifier, 0)|
+
+Per generare prova e witness utilizziamo il nullifierHash, calcolato nella seguente maniera:
+
+\verb|nullifierHash = PoseidonHash(nullifier, 1, leafIndex)|
+
+I dati forniti da Chih Cheng Liang sono i seguenti:
+
+\begin{table}[]
+\begin{tabular}{|l|l|l|}
+\hline
+               & Classic & PoseidonHash \\ \hline
+Deposit (Gas)  & 1088354 & 874131       \\ \hline
+Whitdraw (Gas) & 301233  & 322005       \\ \hline
+Constraints    & 28271   & 5386         \\ \hline
+\end{tabular}
+\end{table}
+
+Per compilare il progetto bisogna avere il seguenti programmi installati:
+
+\begin{itemize}
+    \item Node.js (versione non recente, per questo progetto è stata usata v16.20.2)
+    \item Circom versione 2.0.2
+\end{itemize}
+
+Una volta scaricata la repository i comandi da eseguire sono i seguenti:
+
+\begin{verbatim}
+    npm install
+    npm run build
+    npm test
+\end{verbatim}
+
+Una volta eseguita la build correttamente, si sarà creata una cartella artifact contenente il file .json dei contratti compilati.
+
+Un problema che è stato riscontrato nel fare il deploying dei contratti su testnet è che il contratto Hasher.json aveva bytecode vuoto. Quindi è stato compilato il contratto sfruttando \verb|genContract.js| di circolibjs con il seguente codice:
+
+\begin{lstlisting}
+const path = require('path');
+const fs = require('fs');
+const circomlibjs = require('circomlibjs');
+
+const outputPath = path.resolve(__dirname, '../artifacts/contracts/Hasher.json');
+
+async function main() {
+  console.log('Generating Poseidon hasher with circomlibjs...');
+  
+  const poseidonContract = await circomlibjs.poseidonContract;
+  const numInputs = 2;
+
+  const abi = poseidonContract.generateABI(numInputs);
+  const bytecode = poseidonContract.createCode(numInputs);
+
+  console.log('ABI length:', abi.length);
+  console.log('Bytecode length:', bytecode.length);
+  console.log('Bytecode preview:', bytecode.slice(0, 100) + '...');
+
+  const contract = {
+    contractName: 'Hasher',
+    abi: abi,
+    bytecode: bytecode,
+  };
+
+  fs.writeFileSync(outputPath, JSON.stringify(contract, null, 2));
+  console.log('Hasher.json generated at:', outputPath);
+
+  // Test with JS Poseidon
+  const poseidon = await circomlibjs.buildPoseidon();
+  const testInputs = [1, 2];
+  const jsHash = poseidon(testInputs);
+  console.log('JS Poseidon hash:', poseidon.F.toString(jsHash));
+}
+
+main().catch((error) => {
+  console.error('Error:', error);
+  process.exit(1);
+});
+\end{lstlisting}
+
+Una volta ottenuti Verifier.json, Hasher.json ed ETHTornado.json, bisogna per deployare i contratti.
+
+Il contratto con cui si andrà ad interagire per i depositi ed i withdrawal sarà quello generato dal deployment di ETHTornado.json. La maniera con cui i tre contratti sono collegati, avviene col deployment di quest'ultimo, il quale costruttore prende come input l'indirizzo dei due contratti (Hasher e Verifier).
+
+I contratti sono stati deployati grazie alla libreria web3, che ci permette di collegarci ad una rpc e mandare transazioni alla rete, tramite il seguente script:
+
+\begin{lstlisting}
+const Web3 = require('web3');
+const fs = require('fs');
+
+// Connect to Base Sepolia
+const web3 = new Web3('wss://base-sepolia-rpc.publicnode.com');
+
+// Account setup
+const privateKey = 'REDACTED';
+const hasherAddress = '0x0ffc6149238E8c153e5ad30E71f37e50B9C87caC';
+const verifierAddress = '0x9A25Fb8207086912ee3af781277e14767f81BD71';
+const account = web3.eth.accounts.privateKeyToAccount(privateKey);
+web3.eth.accounts.wallet.add(account);
+
+// Load contract data
+const contractData = JSON.parse(fs.readFileSync('../artifacts/contracts/ETHTornado.sol/ETHTornado.json', 'utf8'));
+const contractABI = contractData.abi;
+const contractBytecode = contractData.bytecode;
+
+const contract = new web3.eth.Contract(contractABI);
+
+async function deployContract() {
+    try {
+        // Network info
+        const chainId = await web3.eth.getChainId();
+        console.log('Chain ID:', chainId); // Should be 84532
+
+        // Account info
+        const balance = await web3.eth.getBalance(account.address);
+        console.log('Account:', account.address);
+        console.log('Balance:', web3.utils.fromWei(balance, 'ether'), 'ETH');
+        if (balance === '0') throw new Error('Account has no funds');
+
+        // Check hasher address
+        const hasherCode = await web3.eth.getCode(hasherAddress);
+        console.log('Hasher code length:', hasherCode.length);
+        if (hasherCode === '0x') throw new Error('Hasher address is not a deployed contract');
+
+        // Estimate gas
+        const gasEstimate = await contract.deploy({
+            data: contractBytecode,
+            arguments: [verifierAddress, 1000000000000000, 20, hasherAddress]
+        }).estimateGas({ from: account.address });
+        console.log('Estimated gas:', gasEstimate);
+
+        const gasPrice = await web3.eth.getGasPrice();
+        console.log('Gas price:', web3.utils.fromWei(gasPrice, 'gwei'), 'gwei');
+
+        // Deploy
+        const deployedContract = await contract
+            .deploy({
+                data: contractBytecode,
+                arguments: [verifierAddress, 1000000000000000, 20, hasherAddress]
+            })
+            .send({
+                from: account.address,
+                gas: Math.floor(gasEstimate),
+                gasPrice: gasPrice
+            })
+            .on('transactionHash', (hash) => {
+                console.log('Tx hash:', hash);
+            })
+            .on('receipt', (receipt) => {
+                console.log('Tx receipt:', receipt);
+            })
+            .on('error', (error) => {
+                console.error('Tx error:', error);
+            });
+
+        console.log('Deployed at:', deployedContract.options.address);
+        return deployedContract;
+    } catch (error) {
+        console.error('Deployment failed:', error.message);
+        if (error.data) console.error('Revert data:', error.data);
+        throw error;
+    }
+}
+
+deployContract();
+\end{lstlisting}
+
+Il costruttore di ETHTornado.json prende in input 4 parametri, in ordine:
+
+\begin{itemize}
+    \item \textbf{\_verifier} L'indirizzo a cui è stato deployato il contratto Verifier
+    \item \textbf{\_denomination} Rappresenta il valore fisso dei depositi e prelievi, nel nostro caso è 1000000000000000 wei (0.001ETH)
+    \item \textbf{\_merkleTreeHeight} L'altezza del Merkle Tree, nel nostro caso 20
+    \item \textbf{\_hasher} L'indirizzo a cui è stato deployato il contratto Hasher
+\end{itemize}
+
+Per il deploying di Hasher e Verifier è stato usato lo stesso script ma con arguments la lista vuota "[ ]" e con input Verifier.json e l'Hasher.json generato con lo script precedente.
+
+Per controllare transazioni ed indirizzi su Sepolia Base si può utilizzare il seguente sito: \url{https://sepolia.basescan.org}\cite{basescan}
+
+I contratti sono stati deployati ai seguenti indirizzi:
+
+\begin{itemize}
+    \item \textbf{Hasher:} \href{https://sepolia.basescan.org/address/0x0ffc6149238E8c153e5ad30E71f37e50B9C87caC}{0x0ffc6149238E8c153e5ad30E71f37e50B9C87caC}
+    \item \textbf{Verifier:} \href{https://sepolia.basescan.org/address/0x9A25Fb8207086912ee3af781277e14767f81BD71}{0x9A25Fb8207086912ee3af781277e14767f81BD71}
+    \item \textbf{ETHTornado} \href{https://sepolia.basescan.org/address/0x3a6d3B0F0bA61d2Ca2e56129E522982fFf0a545e}{0x3a6d3B0F0bA61d2Ca2e56129E522982fFf0a545e}
+\end{itemize}
+
+Vediamo ora un esempio di transazione:
+
+\subsection{Deposito}
+
+Script:
+
+\begin{lstlisting}
+const { Web3 } = require('web3');
+const circomlib = require("circomlibjs");
+const ethers = require("ethers");
+const { BigNumber } = ethers;
+
+// Configurazione
+const rpc = "wss://base-sepolia-rpc.publicnode.com";
+const PRIVATE_KEY = "REDACTED";
+const tornadoAddress = "0x3a6d3B0F0bA61d2Ca2e56129E522982fFf0a545e";
+
+// Inizializzazione Web3
+const web3 = new Web3(rpc);
+const contractJson = require(__dirname + '/../artifacts/contracts/ETHTornado.sol/ETHTornado.json');
+const tornado = new web3.eth.Contract(contractJson.abi, tornadoAddress);
+
+// Configurazione account
+const account = web3.eth.accounts.privateKeyToAccount('0x' + PRIVATE_KEY);
+web3.eth.accounts.wallet.add(account);
+web3.eth.defaultAccount = account.address;
+const senderAccount = account.address;
+
+function toHex(number, length = 32) {
+    const str = number instanceof Buffer ? number.toString('hex') : BigInt(number).toString(16);
+    return '0x' + str.padStart(length * 2, '0');
+}
+
+// Funzione Poseidon Hash che restituisce un bytes32
+function poseidonHash(poseidon, inputs) {
+    const hash = poseidon(inputs.map((x) => BigNumber.from(x).toBigInt()));
+    const hashStr = poseidon.F.toString(hash); // Converte nel campo finito
+    const hashHex = BigNumber.from(hashStr).toHexString(); // Converti in esadecimale
+    return ethers.utils.hexZeroPad(hashHex, 32); // Padding a 32 byte
+}
+
+async function createDeposit(amount) {
+    // Inizializza Poseidon
+    const poseidon = await circomlib.buildPoseidon();
+
+    // Genera un nullifier casuale (15 byte)
+    const nullifierBytes = ethers.utils.randomBytes(15);
+    const nullifierHex = ethers.utils.hexlify(nullifierBytes);
+
+    // Calcola il commitment con [nullifier, 0]
+    const commitment = poseidonHash(poseidon, [nullifierHex, 0]);
+
+    // Restituisci in formato JSON
+    return {
+        nullifier: ethers.utils.hexZeroPad(nullifierHex, 32), // Nullifier come bytes32
+        commitment: commitment
+    };
+}
+
+/**
+ * Effettua un deposito
+ * @param {Object} params - Parametri del deposito
+ * @param {string} params.currency - Valuta (es. "eth")
+ * @param {number} params.amount - Importo del deposito
+ */
+async function deposit({ currency, amount }) {
+    try {
+        // Controlla il saldo
+        const balance = await web3.eth.getBalance(senderAccount);
+        console.log('Saldo account:', web3.utils.fromWei(balance, 'ether'), 'ETH');
+
+        // Verifica che il contratto esista
+        const code = await web3.eth.getCode(tornadoAddress);
+        if (code === '0x') {
+            throw new Error('Nessun contratto deployato all\'indirizzo specificato!');
+        }
+
+        const deposit = await createDeposit({ amount });
+
+        // Calcola il valore da inviare (amount in wei)
+        const value = web3.utils.toWei(amount.toString(), 'ether');
+        console.log('Valore da inviare:', web3.utils.fromWei(value, 'ether'), 'ETH');
+
+        const commitment = deposit.commitment
+
+        // Stima il gas
+        const gasEstimate = await tornado.methods.deposit(commitment).estimateGas({
+            from: senderAccount,
+            value: value
+        });
+        console.log('Gas stimato:', gasEstimate);
+
+        // Ottieni il gas price
+        const gasPrice = await web3.eth.getGasPrice();
+        console.log('Prezzo del gas:', web3.utils.fromWei(gasPrice, 'gwei'), 'gwei');
+
+        // Verifica fondi sufficienti
+        const totalCost = BigInt(Number(gasEstimate)) * BigInt(gasPrice) + BigInt(value);
+        if (BigInt(balance) < totalCost) {
+            throw new Error('Fondi insufficienti per il deposito e il gas!');
+        }
+
+        // Esegui la transazione
+        console.log('Submitting deposit transaction');
+        const receipt = await tornado.methods.deposit(commitment).send({
+            from: senderAccount,
+            value: value,
+            gas: gasEstimate,
+            gasPrice: gasPrice
+        });
+
+        console.log('Transazione completata! Hash:', receipt.transactionHash);
+        const data = receipt.logs[0].data;
+        const firstHalf = '0x' + data.slice(2, 66);
+        const leafIndex = parseInt(firstHalf);
+        console.log('leafIndex:', leafIndex);
+        const poseidon = await circomlib.buildPoseidon();
+        const nullifierHash = poseidonHash(poseidon, [deposit.nullifier, 1, leafIndex]);
+        const nullifierHex = deposit.nullifier;
+        return { nullifierHex, commitment, nullifierHash };
+    } catch (error) {
+        console.error('Errore durante il deposito:', error);
+        if (error.receipt) {
+            console.error('Dettagli receipt:', error.receipt);
+        }
+        throw error;
+    }
+}
+
+// Esegui il deposito
+deposit({ currency: "eth", amount: 0.001 })
+    .then(result => {
+        console.log('nullifier:', result.nullifierHex);
+        console.log('commitment:', result.commitment);
+        console.log('nullifierHash:', result.nullifierHash);
+    })
+    .catch(err => console.error('Errore:', err));
+\end{lstlisting}
+
+Output:
+
+\begin{minted}[breaklines=true,breakanywhere=true,fontsize=\small,bgcolor=white,style=bw]{text}
+
+Saldo account: 0.083258091675057736 ETH
+
+Valore da inviare: 0.001 ETH
+
+Gas stimato: 828077n
+
+Prezzo del gas: 0.001000319 gwei
+
+Submitting deposit transaction
+
+Transazione completata! 
+
+Hash: 0xf486e0c92708ef5794d851bc6698cafb7f40ec338b72907f053da7d1d8fe82d1
+
+leafIndex: 11
+
+nullifier: 0x00000000000000000000000000000000001a34f8546195f074f9e7380446ff3a
+
+commitment: 0x0b6014c902cd1e73dde4d951cc276fe7ee574fd39784a75a440911ae61c36f22
+
+nullifierHash: 0x26f3b5d6175b61acd648a7c095b0c480eebe60297aab12b08980a5265da467b3
+\end{minted}
+
+
+\subsection{Generazione prova}
+
+Per scrivere questo script è stato necessario compilare il file \verb|/src/MerkleTree.ts| in un file javascript tramite il comando \verb|npx tsc|. Ottenendo il file \verb|/dist/src/merkleTree.js|
+
+\begin{lstlisting}
+const { Web3 } = require('web3');
+const assert = require('assert');
+const circomlib = require('circomlibjs');
+const { BigNumber } = require('ethers');
+const path = require('path');
+const { groth16 } = require('snarkjs');
+const { MerkleTree } = require('../dist/src/merkleTree');
+
+const rpc = "wss://base-sepolia-rpc.publicnode.com";
+const contractJson = require(__dirname + '/../artifacts/contracts/ETHTornado.sol/ETHTornado.json');
+const tornadoAddress = "0x3a6d3B0F0bA61d2Ca2e56129E522982fFf0a545e";
+
+const web3 = new Web3(rpc);
+const tornado = new web3.eth.Contract(contractJson.abi, tornadoAddress);
+
+const MERKLE_TREE_HEIGHT = 20;
+const ETH_AMOUNT = 1e18;
+const TOKEN_AMOUNT = 1e19;
+
+// Utility functions
+function toHex(number, length = 32) {
+  const str = number instanceof Buffer ? number.toString('hex') : BigInt(number).toString(16);
+  return '0x' + str.padStart(length * 2, '0');
+}
+
+function poseidonHash(poseidon, inputs) {
+  const hash = poseidon(inputs.map((x) => BigNumber.from(x).toBigInt()));
+  const hashStr = poseidon.F.toString(hash);
+  const hashHex = BigNumber.from(hashStr).toHexString();
+  return web3.utils.padLeft(hashHex, 64);
+}
+
+// Poseidon Hasher
+class PoseidonHasher {
+  constructor(poseidon) {
+    this.poseidon = poseidon;
+  }
+
+  hash(left, right) {
+    return poseidonHash(this.poseidon, [left, right]);
+  }
+}
+
+// Fetch events in batches
+async function getEventsInBatches(fromBlock, toBlock, batchSize = 49999n) {
+  const events = [];
+  const latestBlock = toBlock === 'latest' ? await web3.eth.getBlockNumber() : BigInt(toBlock);
+  for (let start = BigInt(fromBlock); start <= latestBlock; start += batchSize) {
+    const end = latestBlock < start + batchSize - 1n ? latestBlock : start + batchSize - 1n;
+    console.log(`Fetching events from block ${start} to ${end}`);
+    const batch = await tornado.getPastEvents('Deposit', {
+      fromBlock: start.toString(),
+      toBlock: end.toString(),
+    });
+    events.push(...batch);
+  }
+  return events;
+}
+
+// Genera la prova Merkle
+async function generateMerkleProof(deposit) {
+  console.log('Getting current state from tornado contract');
+  const events = await getEventsInBatches(22237544, 'latest');
+
+  const leaves = events
+    .sort((a, b) => {
+      const indexA = BigInt(a.returnValues.leafIndex);
+      const indexB = BigInt(b.returnValues.leafIndex);
+      return indexA < indexB ? -1 : indexA > indexB ? 1 : 0;
+    })
+    .map(e => e.returnValues.commitment);
+
+  if (!leaves.includes(deposit.commitment)) {
+    throw new Error(`Deposit commitment ${deposit.commitment} not found in the fetched leaves`);
+  }
+
+  const poseidon = await circomlib.buildPoseidon();
+  const tree = new MerkleTree(MERKLE_TREE_HEIGHT, 'tornado', new PoseidonHasher(poseidon));
+
+  console.log('Inserting leaves into Merkle Tree...');
+  for (const leaf of leaves) {
+    await tree.insert(leaf);
+  }
+  console.log('All leaves inserted');
+
+  const leafIndex = leaves.indexOf(deposit.commitment);
+  console.log('Adjusted leafIndex:', leafIndex);
+  assert(leafIndex >= 0, 'The deposit is not found in the tree');
+
+  const root = await tree.root();
+  const rootHex = toHex(root);
+  const isValidRoot = await tornado.methods.isKnownRoot(rootHex).call();
+  const isSpent = await tornado.methods.isSpent(deposit.nullifierHash).call();
+
+  console.log('Root:', rootHex);
+  console.log('Is valid root:', isValidRoot);
+  console.log('Is spent:', isSpent);
+
+  assert(isValidRoot === true, 'Merkle tree is corrupted');
+  assert(isSpent === false, 'The note is already spent');
+
+  const { path_elements: pathElements, path_index: pathIndices } = await tree.path(leafIndex);
+
+  return { root, pathElements, pathIndices };
+}
+
+// Genera la prova SNARK
+async function prove(witness) {
+  const wasmPath = path.join(__dirname, '../build/withdraw_js/withdraw.wasm');
+  const zkeyPath = path.join(__dirname, '../build/circuit_final.zkey');
+
+  const { proof } = await groth16.fullProve(witness, wasmPath, zkeyPath);
+  const solProof = {
+    a: [proof.pi_a[0], proof.pi_a[1]],
+    b: [
+      [proof.pi_b[0][1], proof.pi_b[0][0]],
+      [proof.pi_b[1][1], proof.pi_b[1][0]],
+    ],
+    c: [proof.pi_c[0], proof.pi_c[1]],
+  };
+  return solProof;
+}
+
+// Genera la prova completa per il ritiro
+async function generateProof({ deposit, recipient, relayer = '0x0000000000000000000000000000000000000000', fee = '0', refund = '0' }) {
+  const { root, pathElements, pathIndices } = await generateMerkleProof(deposit);
+
+  const witness = {
+    root,
+    nullifierHash: deposit.nullifierHash,
+    recipient,
+    relayer,
+    fee,
+    nullifier: BigNumber.from(deposit.nullifier).toBigInt(),
+    pathElements,
+    pathIndices,
+  };
+
+  const solProof = await prove(witness);
+  return solProof;
+}
+
+// Dati di input
+const deposit = {
+  "nullifier": "0x00000000000000000000000000000000001a34f8546195f074f9e7380446ff3a",
+  "commitment": "0x0b6014c902cd1e73dde4d951cc276fe7ee574fd39784a75a440911ae61c36f22",
+  "nullifierHash": "0x26f3b5d6175b61acd648a7c095b0c480eebe60297aab12b08980a5265da467b3"
+};
+
+const recipient = "0x58102161341811da3009e257618b1cc5c2c464c0";
+
+// Esecuzione
+(async () => {
+  try {
+    const solProof = await generateProof({ deposit, recipient });
+    console.log('Final proof:', JSON.stringify(solProof, null, 2));
+  } catch (error) {
+    console.error('Error:', error);
+  }
+})();
+\end{lstlisting}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true,fontsize=\small,bgcolor=white,style=bw]{text}
+Getting current state from tornado contract
+
+Fetching events from block 22237544 to 22275523
+
+Inserting leaves into Merkle Tree...
+
+All leaves inserted
+
+Adjusted leafIndex: 11
+
+Root: 0x16216c3050e4c744e0a057779a4cc933999830a439ed091e2f518e2c43b9bb62
+
+Is valid root: true
+
+Is spent: false
+
+Final proof: {
+  "a": [
+    "7862440914095719444751343030016674769727095145266245492182112095617319191350",
+    "20399187910052134371486872584403723224813942216176337451136616361980246752812"
+  ],
+  "b": [
+    [
+      "385753582699743675900730658687621927769857444762047084661631313811160781351",
+      "13600705585898368067493640181325805925936606313956877656533809386812346179126"
+    ],
+    [
+      "2862913991129339210941106088013278057606697399306195696885980800905916213309",
+      "6295401740218797766955449244477578609069979159412023007238181925039656728935"
+    ]
+  ],
+  "c": [
+    "2514181637974266238175223588184695830287111337434491111551707570390284323099",
+    "3536392892073201726238365570784228530422984123193546882067435164486998942928"
+  ]
+}
+\end{minted}
+\subsection{Withdraw}
+
+Script:
+
+\begin{lstlisting}
+const { Web3 } = require('web3');
+
+// Configurazione
+const rpc = "wss://base-sepolia-rpc.publicnode.com";
+const PRIVATE_KEY = "REDACTED";
+const tornadoAddress = "0x3a6d3B0F0bA61d2Ca2e56129E522982fFf0a545e";
+
+// Inizializzazione Web3
+const web3 = new Web3(rpc);
+const contractJson = require(__dirname + '/../artifacts/contracts/ETHTornado.sol/ETHTornado.json');
+const tornado = new web3.eth.Contract(contractJson.abi, tornadoAddress);
+
+// Configurazione account
+const account = web3.eth.accounts.privateKeyToAccount('0x' + PRIVATE_KEY);
+web3.eth.accounts.wallet.add(account);
+web3.eth.defaultAccount = account.address;
+const senderAccount = account.address;
+
+/**
+ * Esegue un prelievo ETH
+ * @param {Object} params - Parametri del prelievo
+ * @param {string} params.proof - Stringa esadecimale della prova zk-SNARK
+ * @param {Array} params.args - Array di parametri aggiuntivi [root, nullifierHash, recipient, relayer, fee, refund]
+ * @param {string} [params.refund='0'] - Importo di rimborso in wei
+ */
+async function withdraw(proof, root, nullifierHash, recipient, relayer, fee = '0', refund = '0') {
+    try {
+        // Controlla il saldo
+        const balance = await web3.eth.getBalance(senderAccount);
+        console.log('Saldo account:', web3.utils.fromWei(balance, 'ether'), 'ETH');
+
+        // Verifica che il contratto esista
+        const code = await web3.eth.getCode(tornadoAddress);
+        if (code === '0x') {
+            throw new Error('Nessun contratto deployato all\'indirizzo specificato!');
+        }
+
+        const isKnownRoot = await tornado.methods.isKnownRoot(root).call();
+        console.log('Root conosciuta:', isKnownRoot);
+        if (!isKnownRoot) {
+            console.warn('Attenzione: la root fornita non e presente nel contratto!');
+        }
+
+        const isSpent = await tornado.methods.isSpent(nullifierHash).call();
+        console.log('Nullifier gia speso:', isSpent);
+        if (isSpent) {
+            throw new Error('Il nullifier e gia stato speso!');
+        }
+
+        // Stima il gas
+        const gasEstimate = await tornado.methods.withdraw(proof, root, nullifierHash, recipient, relayer, fee).estimateGas({
+            from: senderAccount,
+            value: refund
+        });
+        console.log('Gas stimato:', gasEstimate);
+
+        // Ottieni il gas price
+        const gasPrice = await web3.eth.getGasPrice();
+        console.log('Prezzo del gas:', web3.utils.fromWei(gasPrice, 'gwei'), 'gwei');
+
+        // Verifica fondi sufficienti
+        const totalCost = BigInt(Number(gasEstimate)) * BigInt(gasPrice) + BigInt(refund);
+        if (BigInt(balance) < totalCost) {
+            throw new Error('Fondi insufficienti per il deposito e il gas!');
+        }
+
+        // Esegui la transazione
+        console.log('Submitting withdraw transaction');
+        const receipt = await tornado.methods.withdraw(proof, root, nullifierHash, recipient, relayer, fee).send({
+            from: senderAccount,
+            value: refund,
+            gas: gasEstimate,
+            gasPrice: gasPrice
+        })
+            .on('transactionHash', (txHash) => {
+                console.log(`The transaction hash is ${txHash}`);
+            })
+            .on('error', (e) => {
+                console.error('Errore durante la transazione:', e.message);
+            });
+
+        console.log('Prelievo completato!');
+    } catch (error) {
+        console.error('Errore nel prelievo:', error);
+        if (error.receipt) {
+            console.error('Dettagli receipt:', error.receipt);
+        }
+        throw error;
+    }
+}
+
+
+
+const proof = {
+    "a": [
+      "7862440914095719444751343030016674769727095145266245492182112095617319191350",
+      "20399187910052134371486872584403723224813942216176337451136616361980246752812"
+    ],
+    "b": [
+      [
+        "385753582699743675900730658687621927769857444762047084661631313811160781351",
+        "13600705585898368067493640181325805925936606313956877656533809386812346179126"
+      ],
+      [
+        "2862913991129339210941106088013278057606697399306195696885980800905916213309",
+        "6295401740218797766955449244477578609069979159412023007238181925039656728935"
+      ]
+    ],
+    "c": [
+      "2514181637974266238175223588184695830287111337434491111551707570390284323099",
+      "3536392892073201726238365570784228530422984123193546882067435164486998942928"
+    ]
+}
+
+const root = "0x16216c3050e4c744e0a057779a4cc933999830a439ed091e2f518e2c43b9bb62";
+
+const nullifierHash = "0x26f3b5d6175b61acd648a7c095b0c480eebe60297aab12b08980a5265da467b3"
+
+const recipient = "0x58102161341811da3009e257618b1cc5c2c464c0";
+
+const relayer = "0x0000000000000000000000000000000000000000";
+
+// Esegui il prelievo
+withdraw(proof, root, nullifierHash, recipient, relayer)
+.then(() => console.log('Prelievo eseguito con successo'))
+.catch(err => console.error('Errore finale:', err));
+\end{lstlisting}
+
+Output:
+
+\begin{minted}[breaklines=true,breakanywhere=true,fontsize=\small,bgcolor=white,style=bw]{text}
+
+Saldo account: 0.007567958903663304 ETH
+
+Root conosciuta: true
+
+Nullifier già speso: false
+
+Gas stimato: 315590n
+
+Prezzo del gas: 0.00100032 gwei
+
+Submitting withdraw transaction
+
+The transaction hash is 
+
+0xef290555754da1fe69539bbc2c66f1d2ab1b080db26ad045c7a40b387a8ed997
+
+Prelievo completato!
+
+Prelievo eseguito con successo
+\end{minted}
+
+\subsection{Commenti}
+
+Indirizzo che ha effettuato il deposito: \href{https://sepolia.basescan.org/address/0x75D610b953C60f9950be94a5cE82C8DC8bA41CC2}{0x75D610b953C60f9950be94a5cE82C8DC8bA41CC2}
+
+Indirizzo che ha effettuato il prelievo: \href{https://sepolia.basescan.org/address/0x58102161341811dA3009e257618b1CC5C2c464C0}{0x58102161341811dA3009e257618b1CC5C2c464C0}
+
+Nella variabile \verb|PRIVATE_KEY| sono state quindi inserite le rispettive chiavi private.
+
+Non è stato utilizzato un relayer ma il prelievo è stato ritirato direttamente dell'indirizzo ricevente
+
+Le transazioni su Sepolia Test si possono verificare ai seguenti link:
+
+Deposit: \href{https://sepolia.basescan.org/tx/0xf486e0c92708ef5794d851bc6698cafb7f40ec338b72907f053da7d1d8fe82d1}{0xf486e0c92708ef5794d851bc6698cafb7f40ec338b72907f053da7d1d8fe82d1}
+
+Withdraw: \href{https://sepolia.basescan.org/tx/0xef290555754da1fe69539bbc2c66f1d2ab1b080db26ad045c7a40b387a8ed997}{0xef290555754da1fe69539bbc2c66f1d2ab1b080db26ad045c7a40b387a8ed997}

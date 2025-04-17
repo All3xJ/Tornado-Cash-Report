@@ -1,0 +1,68 @@
+\documentclass{report}
+\usepackage{graphicx} % Required for inserting 
+\usepackage{amssymb}
+\usepackage{verbatim}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{listings}
+\lstset{
+    breaklines=true,
+    breakatwhitespace=false, % Permette di spezzare anche senza spazi
+    breakautoindent=true,    % Indenta automaticamente dopo l'interruzione
+    basicstyle=\ttfamily,
+    commentstyle=\color{gray},
+    keepspaces=true,
+    numbers=left,
+    numberstyle=\tiny,
+    frame=single,
+    literate={0}{0}{1}%
+             {1}{1}{1}%
+             {2}{2}{1}%
+             {3}{3}{1}%
+             {4}{4}{1}%
+             {5}{5}{1}%
+             {6}{6}{1}%
+             {7}{7}{1}%
+             {8}{8}{1}%
+             {9}{9}{1}%
+}
+% \usepackage[breaklinks=true]{hyperref}
+% \urlstyle{same}
+\usepackage{minted}
+\usepackage{fancyvrb}
+\usepackage{titlesec}
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries}{}{0pt}{}
+
+\usepackage[style=numeric]{biblatex}
+\addbibresource{bibliografia.bib}
+\usepackage{hyperref}
+
+\usepackage{forest} % Per alberi grafici ben allineati
+
+\usepackage{float}     % Per l'opzione [H]
+
+\title{Tornado Cash}
+\author{Emanuele Cornaggia, Alessandro Genova}
+\date{February 2025}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\include{chapters/abstract}
+\include{chapters/intro}
+\include{chapters/primitive}
+\include{chapters/funzionamentosmartcontract}
+\include{chapters/partepratica}
+\include{chapters/aggiuntealproto}
+\include{chapters/dao}
+\include{chapters/controversie}
+\include{chapters/zsnark}
+
+\printbibliography
+
+\end{document}

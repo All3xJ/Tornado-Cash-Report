@@ -1,0 +1,129 @@
+\chapter{Primitive}
+
+\section{zk-SNARKs}
+
+In questo paragrafo parleremo in modo sintetico delle zk-SNARKs, in quanto abbiamo dedicato \hyperref[cap:zk-snarks]{un capitolo a parte} per parlarne in modo molto più approfondito.
+
+\subsection{ZKP}
+
+Una Zero-Knowledge Proof (ZKP) è un protocollo crittografico che permette ad una parte (detta prover) di convincere un'altra parte (detta verifier) che un'affermazione è vera, senza rivelare alcuna informazione oltre il semplice fatto che l'affermazione è vera.
+
+% vedere se fare differenza tra ZKP e ZKPoK
+
+Questo concetto venne introdotto nel 1985 da Goldwasser, Micali e Rackoff nel loro paper "The Knowledge Complexity of Interactive Proof-Systems"\cite{goldwasser1989knowledge}.
+
+Un protocollo di Zero-Knowledge Proof deve soddisfare tre proprietà essenziali:
+
+\begin{itemize}
+    \item \textbf{Completezza}: se l’affermazione è vera e il prover segue correttamente il protocollo, il verifier accetterà la prova con alta probabilità.
+    \item \textbf{Correttezza}: un prover disonesto non può ingannare il verifier facendogli accettare un’affermazione falsa, salvo una probabilità trascurabile.
+    \item \textbf{Zero-Knowledge}: la prova non rivela alcuna informazione utile sul segreto sottostante, oltre alla veridicità dell’affermazione.
+\end{itemize}
+
+Queste proprietà garantiscono che il verifier possa essere certo della correttezza dell’affermazione senza ottenere dettagli che compromettano la riservatezza del segreto. \\
+
+Le ZKP possono essere classificate in due principali categorie
+\begin{itemize}
+    \item \textbf{Prove interattive}: richiedono uno scambio di messaggi tra prover e verifier per raggiungere la convinzione sulla validità dell’affermazione. Un esempio è il protocollo di Schnorr per l’autenticazione.
+    \item \textbf{Prove non interattive (NIZK)}: eliminano la necessità di interazione, consentendo la verifica tramite un'unica trasmissione di dati. L'euristica Fiat–Shamir puó venir usata per trasformare alcune ZKP interattive in NIZK.
+\end{itemize}
+
+\subsection{zk-SNARKs}
+
+La Zero-Knowledge Succinct Non-Interactive Argument of Knowledge sono una sottoclasse delle NIZK.
+
+La principali carattestiche sono:
+
+\begin{itemize}
+    \item \textbf{Zero-Knowledge}: la prova non rivela alcuna informazione sul segreto sottostante, oltre alla veridicità dell'affermazione.
+    \item \textbf{Succintezza}: la prova è di dimensione ridotta e può essere verificata in tempo polinomiale rispetto alla dimensione dell'input.
+    \item \textbf{Non interattivo}: il protocollo non richiede interazione tra prover e verifier.
+    \item \textbf{Argument of Knowledge}: il prover può generare una prova valida solo se possiede effettivamente la conoscenza del witness (contiene valori e segreti che soddisfano una determinata affermazione o relazione matematica).
+\end{itemize}
+
+zk-SNARKs sono progettati in maniera da essere efficienti e da poter venir utilizzati per verificare un grande numero di statements contemporaneamente.
+
+\section{Pedersen Hash}
+
+\cite{pedersen1991non}
+Sia $G$ un gruppo ciclico di ordine $q$ primo e caratteristica $p$, generato da un elemento $g$, con un secondo generatore $h$ scelto in modo che il problema del logaritmo discreto (DLP) tra $g$ e $h$ sia computazionalmente intrattabile (in altre parole, deve essere molto difficile calcolare l'esponente x tale che $h = g^x$).
+
+Il Pedersen Hash di un messaggio  $m$ viene definito come:
+
+$$H(m)=g^mh^r\pmod{p}$$
+
+dove:
+
+\begin{itemize}
+    \item $m$ è il messaggio da hashare, considerato come un elemento numerico del campo finito sottostante
+    \item $r$ è un valore casuale scelto uniformemente in $\mathbb{Z}_q$, usato per introdurre entropia e ottenere proprietà di sicurezza
+    \item $g$ e $h$ sono generatori del gruppo $G$ \\
+\end{itemize}
+
+Proprietá:
+\begin{itemize}
+    \item \textbf{Collision Resistance}: se il gruppo $G$ è sufficientemente grande e il problema del logaritmo discreto è difficile, trovare due messaggi distinti $m_1,m_2$ tali che $H(m_1)=H(m_2)$ è computazionalmente difficile.
+    \item \textbf{Hiding}:  il valore di hash non rivela informazioni dirette sul messaggio  $m$, poiché è mascherato dal valore casuale  $r$.
+    \item \textbf{Binding}: se $r$ non è noto, è computazionalmente difficile trovare un altro messaggio $m'$, e un valore casuale $r'$ tali che $H(m)=H(m')$.
+\end{itemize}
+
+Pedersen hash è progettato per ottimizzare l'efficienza computazionale all'interno dei circuiti Zero-Knowledge.
+
+L'hashing di un messaggio tramite la funzione di hash di Pedersen comprime i bit del messaggio in un punto su una curva ellittica denominata Baby Jubjub. Questa curva è definita nell'ambito della curva ellittica BN128, supportata da operazioni precompilate sulla rete Ethereum introdotte con l'EIP-196. Di conseguenza, le operazioni che utilizzano la curva Baby Jubjub, come l'hashing di Pedersen, risultano altamente efficienti in termini di gas.  
+
+Quando si calcola l'hash di Pedersen di un messaggio, il punto risultante sulla sua curva ellittica è estremamente efficiente da verificare, ma il processo di inversione per recuperare il messaggio originale è computazionalmente intrattabile.
+
+\section{Funzione hash MiMC}
+
+\cite{albrecht2016mimc}
+Minimized Multiplicative Complexity è un algoritmo crittografico progettato specificamente per ottimizzare l'efficienza computazionale in contesti di zero-knowledge proofs (ZKP), come SNARKs e STARKs. La sua struttura è stata sviluppata per ridurre la complessità moltiplicativa, un fattore critico nei protocolli di prova a conoscenza zero, dove i costi computazionali delle moltiplicazioni modulari influenzano direttamente l'efficienza del sistema. 
+
+Nello specifico MiMC è una funzione di hash iterativa costruita su un approccio a rete di Feistel. 
+
+Sia $x$ l'input del messaggio e $k$ una chiave segreta (opzionale). La funzione di round è iterata su un numero T di round con la seguente trasformazione:
+
+$$x_{i+1}=(x_i+C_i+k)^e\pmod{p}$$
+
+dove:
+
+\begin{itemize}
+    \item $C_i$ é una costante di round predefinita e pubblica
+    \item $e$ é un piccolo esponente dispari
+    \item $p$ é un primo grande che definisce il campo sottostante $\mathbb{F}_p$
+    \item $k$ é un valore di chiave opzionale
+\end{itemize}
+
+Il valore hash finale è l'output dopo T iterazioni della trasformazione sopra descritta. \\
+
+MiMC garantisce sicurezza crittografica sfruttando la non linearità introdotta dall’esponente $e$ e la difficoltà del problema del logaritmo discreto nel campo finito $\mathbb{F}_p$. Le principali proprietà includono:
+
+\begin{itemize}
+    \item \textbf{Resistenza alla preimmagine}: date le operazioni modulari con un esponente, la funzione è difficile da invertire.
+    \item \textbf{Collision Resistant}: l'uso di costanti di round differenti garantisce che due input distinti non producano lo stesso hash con probabilità significativa. L'uso di un esponente dispari aiuta a evitare simmetrie (che avremmo con un esponente pari: $x^e = (-x)^e)$.
+    \item \textbf{Bassa complessità computazionale}: il costo delle operazioni modulari è ridotto grazie all’uso di un unico esponente fisso piccolo, minimizzando il numero di moltiplicazioni necessarie rispetto ad altre costruzioni crittografiche basate su permutazioni pi`u complesse.
+\end{itemize}
+
+\section{Merkle Tree}
+
+\cite{merkle1987digital}
+Noto anche come albero di hash binario, è una struttura dati gerarchica utilizzata in crittografia e informatica distribuita per garantire l'integrità e la verificabilità delle informazioni in modo efficiente e sicuro. Esso prende il nome dal suo inventore, Ralph Merkle, che lo ha introdotto negli anni '80 come parte della sua ricerca su metodi sicuri di verifica dei dati in contesti distribuiti.
+
+L'albero di Merkle è essenzialmente un albero binario in cui i nodi foglia rappresentano gli hash di dati individuali, mentre i nodi interni contengono gli hash dei nodi figli. La radice dell'albero, nota come radice di Merkle, rappresenta un hash aggregato di tutti i dati sottostanti, che può essere usato per verificare l'integrità dell'intero set di dati in modo compatto.
+
+Un albero di Merkle è costruito iterativamente in una maniera che riduce il numero di hash necessari per verificare l'integrità dei dati. La sua struttura è la seguente:
+
+\begin{itemize}
+    \item \textbf{Nodi foglia}: Ogni nodo foglia dell'albero rappresenta un hash del dato originale, denotato come $H(d_i)$, dove $d_i$ è l'elemento di dati originale.
+    \item \textbf{Nodi interni} Ogni nodo interno è ottenuto calcolando l'hash della concatenazione degli hash dei suoi figli. Ad esempio, se un nodo ha due figli $A$ e $B$, il nodo padre conterrà l'hash $H(A\mid\mid B)$ (dove $\mid\mid$ è l'operatore di concatenazione).
+    \item \textbf{Mertkle Tree Root} è l'hash finale dell'albero. Rappresenta un'unica stringa di dati che può essere utilizzata per verificare l'integrità dell'intero albero. Contiene un'informazione su tutti i nodi foglia.
+\end{itemize}
+
+L'albero di Merkle è particolarmente utile per strutture dati grandi, poiché riduce notevolmente la quantità di dati necessari per verificare l'integrità di un singolo elemento.\\
+
+\textbf{Proprietà}:
+
+\begin{itemize}
+    \item \textbf{Integrità dei dati}: la radice di Merkle fornisce una sintesi compatta dell'intero set di dati, e qualsiasi modifica a un singolo dato (ad esempio, a una foglia dell'albero) causerà un cambiamento significativo nell'hash della radice. Pertanto, se la radice rimane invariata, l'integrità dei dati sottostanti è garantita.
+    \item \textbf{Verificabilità Efficiente}: una delle principali forze dell'albero di Merkle è la possibilità di verificare l'integrità di un singolo dato senza la necessità di scaricare o verificare l'intero albero. Per verificare un singolo dato, è sufficiente conoscere l'hash della radice e una "prova di Merkle", che consiste negli hash dei nodi interni lungo il percorso dalla foglia alla radice. Questa riduzione dei dati da verificare rende gli alberi di Merkle ideali per applicazioni con grandi quantità di dati distribuiti.
+    \item \textbf{Resistenza alle Collisioni}: se la funzione di hash sottostante è resistente alle collisioni, allora l'albero di Merkle sarà anch'esso resistente alle collisioni. In altre parole, sarà computazionalmente difficile per un attaccante trovare due set di dati distinti che generano la stessa radice di Merkle.
+\end{itemize}
